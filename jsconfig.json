@@ -1,0 +1,38 @@
+{
+	"compilerOptions": {
+		"paths": {
+				"gi://Gtk": ["node_modules/@girs/gtk-4.0/gtk-4.0.d.ts"],
+				"gi://Gdk": ["node_modules/@girs/gdk-4.0/gdk-4.0.d.ts"],
+				"resource:///com/github/kinten108101/Stobo/*": ["src/*"],
+				// force lsp to show error when use absolute path which gjs doesn't support
+				"src/*": ["fds/sfdsf/*"]
+		},
+		"lib": [
+			"ES2022" /* Template does not have this but this is available in GJS now. */
+		],
+		"target": "ES2018",
+		"module": "ESNext",
+		"moduleResolution": "node",
+		"baseUrl": ".",
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedIndexedAccess": true,
+		"forceConsistentCasingInFileNames": true,
+		"strictNullChecks": true,
+		"skipLibCheck": false,   // ignore some issues in the typedef libs
+		"allowJs": true,
+		"checkJs": true
+	},
+	"include": [
+		// NOTE(kinten): Do not include gtk-4.0. adw-1 already did this, including again will cause conflict issues (?)
+		"node_modules/@girs/adw-1/adw-1.d.ts",
+		"node_modules/@girs/gjs/gjs.d.ts",
+		"node_modules/@girs/gjs/dom.d.ts",
+		"src/**/*.js",
+		"src/**/*.js.in",
+		"src/ambient.d.ts"
+	]
+}
