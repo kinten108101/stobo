@@ -88,10 +88,10 @@ const cleanup = async (cancellable) => {
 	for (const x of files) {
 		const name = x.get_basename();
 		if (name === null) {
-			console.warn('Path is invalid. Skipping...');
+			console.warn("Path is invalid. Skipping...");
 			continue;
 		}
-		if (!name.includes('@stvpk.vpk')) continue;
+		if (!name.includes("@stvpk.vpk")) continue;
 		await x.delete_async(GLib.PRIORITY_DEFAULT, cancellable);
 	}
 };
@@ -354,11 +354,11 @@ const createWindow = () => {
 		const primaryButton = builder.get_object("primary_button", Gtk.ToggleButton);
 		const profileLabel = builder.get_object("profile_label", Gtk.Label);
 
-		primaryButton.connect('notify::active', syncCreate(() => {
+		primaryButton.connect("notify::active", syncCreate(() => {
 			if (primaryButton.active) {
-				profileBar.add_css_class('active');
+				profileBar.add_css_class("active");
 			} else {
-				profileBar.remove_css_class('active');
+				profileBar.remove_css_class("active");
 			}
 		}));
 
