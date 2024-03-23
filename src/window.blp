@@ -848,27 +848,28 @@ Adw.ApplicationWindow window {
 										                            vexpand: true;
 
 										                            Adw.ViewStackPage {
-										                              name: "main-page";
-										                              title: _("Load-order");
-										                              icon-name: "map-symbolic";
-										                              child: Box {
-																			margin-top: 24;
-																			margin-bottom: 24;
-																			spacing: 24;
+																		name: "main-page";
+																		title: _("Load-order");
+																		icon-name: "map-symbolic";
+																		child:
+																			Box {
+																				margin-top: 24;
+																				margin-bottom: 24;
+																				spacing: 24;
 
-																			Adw.PreferencesGroup {
-																				title: _("Installed");
+																				Adw.PreferencesGroup {
+																					title: _("Installed");
 
-																				Gtk.ListBox addon_list {}
-																			}
-																		};
+																					Gtk.ListBox addon_list {}
+																				}
+																			};
 										                            }
 
 										                            Adw.ViewStackPage {
-										                              name: "download-page";
-										                              title: _("Browse");
-										                              icon-name: "harddisk-symbolic";
-										                              child: Box {};
+																		name: "download-page";
+																		title: _("Browse");
+																		icon-name: "harddisk-symbolic";
+																		child: Box {};
 										                            }
 										                          }
 															};
