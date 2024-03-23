@@ -527,12 +527,21 @@ const createWindow = () => {
 
 (() => {
 	/**
-	 * @type {Gtk.ApplicationWindow=}
+	 * @type {Gtk.ApplicationWindow?}
 	 */
-	let window = undefined;
+	let window = null;
 
 	application.connect("activate", () => {
-		if (window === undefined) window = createWindow();
+		if (window === null) {
+			const newWindow = createWindow();
+
+			newWindow.connect("close-request", () => {
+				window = null;
+				return false;
+			});
+
+			window = newWindow;
+		}
 		window.present();
 	});
 })();
@@ -568,16 +577,25 @@ const createPreferences = () => {
 
 (() => {
 	/**
-	 * @type {Adw.PreferencesWindow=}
+	 * @type {Adw.PreferencesWindow?}
 	 */
-	let window = undefined;
+	let window = null;
 
 	const showPreferences = new Gio.SimpleAction({
 		name: "show-preferences",
 	});
 
 	showPreferences.connect("activate", () => {
-		if (window === undefined) window = createPreferences();
+		if (window === null) {
+			const newWindow = createPreferences();
+
+			newWindow.connect("close-request", () => {
+				window = null;
+				return false;
+			});
+
+			window = newWindow;
+		}
 		window.present();
 	});
 
