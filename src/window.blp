@@ -1,7 +1,1102 @@
 using Gtk 4.0;
 using Adw 1;
+using GLib 2.0;
+
+menu add_menu {
+	section {
+		item (_("Detect add-on folder..."), "win.add-addon.add-name")
+	}
+
+	section {
+		item (_("Import from Workshop..."), "win.add-addon.add-url")
+	}
+}
+
+menu profile_switch_menu {
+	item (_("Open Repository..."), "workspace.add")
+}
+
+menu primary_menu {
+	section {
+		item {
+			custom: "themeselector";
+		}
+	}
+
+	section {
+		item (_("Export..."), "workspace.export")
+	}
+
+	section {
+		item (_("Preference"), "app.show-preferences")
+		item (_("Keyboard Shortcuts"), "win.show-help-overlay")
+		item (_("About Stobo"), "win.show-about")
+	}
+}
+
+menu inject_menu {
+	section {
+		item (_("Inject & Start game"), "injector.inject-with-game")
+	}
+	section {
+		label: _("Settings");
+		item (_("Launch game when finished"), "injector.toggle-start-game")
+	}
+}
+
+PopoverMenu popover_menu {
+	menu-model: inject_menu;
+}
 
 Adw.ApplicationWindow window {
-	default-width: 400;
-	default-height: 800;
+	default-width: 740;
+	default-height: 468;
+	width-request: 16;
+	height-request: 16;
+
+	Adw.Breakpoint {
+		condition ("(max-width: 700px or max-height: 400px) and max-aspect-ratio: 1/1")
+
+		setters {
+			screen_size_viewstack.visible-child-name: "stobo";
+		}
+	}
+
+	Adw.Breakpoint {
+		condition ("(max-width: 700px or max-height: 400px) and min-aspect-ratio: 1/1")
+
+		setters {
+			screen_size_viewstack.visible-child-name: "ipod";
+		}
+	}
+
+	Adw.Breakpoint {
+		condition ("(min-width: 900px or min-height: 540px) and max-aspect-ratio: 1/1")
+
+		setters {
+			screen_size_viewstack.visible-child-name: "stobo";
+		}
+	}
+
+	Adw.Breakpoint {
+		condition ("(min-width: 900px or min-height: 540px) and min-aspect-ratio: 1/1")
+
+		setters {
+			screen_size_viewstack.visible-child-name: "tv";
+		}
+	}
+
+	content: Adw.ToastOverlay primary_toast_overlay {
+		vexpand: true;
+
+		Stack folder_stack {
+			transition-type: crossfade;
+
+			StackPage {
+				name: "pre-folder";
+				child:
+					Adw.ToolbarView {
+						[top]
+						Adw.HeaderBar {
+							show-title: false;
+						}
+
+						content:
+							Adw.StatusPage {
+								icon-name: "addon-box";
+								title: _("Stobo");
+								description: _("Select a folder, or drag a folder from your file manager to this window");
+								child:
+									Box {
+										halign: center;
+										orientation: vertical;
+										spacing: 12;
+
+										Button {
+											label: _("Open Recent Repository");
+											styles ["pill", "suggested-action"]
+											action-name: "workspace.restore";
+										}
+
+										Button {
+											label: _("Open Folder");
+											styles ["pill"]
+											action-name: "file.select-folder";
+								        	action-target: "(\"workspace\",\"\")";
+										}
+									};
+							};
+					};
+			}
+
+			StackPage {
+				name: "has-folder";
+				child:
+					Stack screen_size_viewstack {
+						transition-type: crossfade;
+
+						StackPage {
+							name: "base";
+							child:
+								Adw.Leaflet primary_leaflet {
+									name: "roboken";
+									can-unfold: false;
+
+									Adw.LeafletPage {
+										name: "addons-page";
+										child:
+											Box {
+												orientation: vertical;
+
+												Adw.ToastOverlay {
+													vexpand: true;
+
+													Overlay {
+
+														[overlay]
+														Box {
+															orientation: vertical;
+															valign: start;
+
+															Adw.HeaderBar headerbar {
+																vexpand: false;
+																centering-policy: strict;
+																show-start-title-buttons: false;
+																show-end-title-buttons: false;
+																title-widget:
+																	CenterBox {
+
+																		[center]
+																		Adw.Clamp {
+																			maximum-size: 300;
+
+																			Box {
+																				margin-top: 4;
+																				margin-bottom: 4;
+																				margin-start: 4;
+																				margin-end: 4;
+																				orientation: vertical;
+																				hexpand: true;
+																				halign: fill;
+																				valign: start;
+																				spacing: 3;
+
+																				Box {
+																					spacing: 6;
+
+																					Adw.Clamp profile_bar {
+																						name: "profile-bar";
+																						vexpand: false;
+																						orientation: vertical;
+																						maximum-size: 16;
+
+																						Box {
+																							orientation: vertical;
+
+																							Box {
+																								halign: fill;
+
+																								MenuButton profile_switch_button {
+																									vexpand: true;
+																									halign: start;
+																									hexpand: false;
+																									menu-model: profile_switch_menu;
+																									tooltip-text: _("Switch Profile");
+																									styles ["flat", "profile-button"]
+
+																									Box {
+																										halign: center;
+																										orientation: vertical;
+																										valign: center;
+
+																										Image {
+																											icon-name: "pan-up-symbolic";
+																											pixel-size: 12;
+																										}
+
+																										Image {
+																											icon-name: "pan-down-symbolic";
+																											pixel-size: 12;
+																										}
+																									}
+																								}
+
+																								Separator {}
+
+
+																								ToggleButton primary_button {
+																									vexpand: true;
+																									halign: fill;
+																									hexpand: true;
+																									styles ["flat", "profile-button"]
+																									action-name: "headerbox.reveal";
+
+																									Box {
+																										halign: fill;
+																										spacing: 4;
+
+																										ScrolledWindow {
+																											hscrollbar-policy: external;
+																											vscrollbar-policy: never;
+																											hexpand: true;
+																											Label profile_label {
+																												hexpand: true;
+																												halign: fill;
+																												xalign: 0;
+																												label: "I\"m scared of drawing so I\"m programming instead!";
+
+																												styles ["profile-name"]
+																											}
+																										}
+
+
+																									}
+																								}
+																							}
+																						}
+																					}
+
+																					Box inject_button {
+																						styles ["inject-button-3"]
+																						Adw.SplitButton inject {
+																							visible: true;
+																							styles ["thin-button", "blue"]
+																							action-name: "inject.inject";
+																							icon-name: "play-symbolic";
+																							popover: popover_menu;
+																						}
+
+																						Adw.SplitButton hold {
+																							visible: false;
+																							styles ["thin-button", "red"]
+																							action-name: "injector.cancel";
+																							// action-target: bind template.id as <GLib.Glib.Variant>;
+
+																							Box {
+																								Image hold-icon {
+																									icon-name: "stop-symbolic";
+																								}
+
+																								Spinner hold-spinner {
+																									visible: false;
+																									spinning: true;
+																								}
+																							}
+																						}
+
+																						Adw.SplitButton done {
+																							visible: false;
+																							styles ["thin-button"]
+																							action-name: "injector.done";
+																							// action-target: bind template.id as <GLib.Glib.Variant>;
+																							icon-name: "checkmark-symbolic";
+																						}
+																					}
+																				}
+
+																				Box headerbox {
+																					name: "headerbox";
+
+																					Revealer headerbox_revealer {
+																						transition-duration: 200;
+																						transition-type: slide_down;
+																						reveal-child: false;
+																						child:
+																							Revealer content_revealer {
+																								transition-duration: 200;
+																								transition-type: crossfade;
+																								reveal-child: false;
+																								vexpand: true;
+																								child:
+																									Adw.ViewStack frame_stack {
+																										margin-top: 3;
+																										margin-bottom: 3;
+
+																										Adw.ViewStackPage {
+																											name: "default_view";
+																											child:
+																												Box {
+																													styles ["default-view", "headerbox-card"]
+																													orientation: vertical;
+
+																													Overlay {
+																														child:
+																															Adw.ViewStack content_type_stack {
+																																Adw.ViewStackPage {
+																																	name: "empty_content";
+																																	child:
+																																		Box {
+																																			orientation: vertical;
+
+																																			ScrolledWindow {
+																																				styles ["empty-status"]
+																																				vexpand: true;
+																																				propagate-natural-height: true;
+																																				hscrollbar-policy: never;
+
+																																				Box {
+																																					valign: center;
+																																					halign: center;
+																																					orientation: vertical;
+																																				}
+																																			}
+																																		};
+																																}
+
+																																Adw.ViewStackPage {
+																																	name: "default_content";
+																																	child:
+																																		Box box_content {
+																																			styles ["default-content"]
+																																			spacing: 12;
+
+																																			Box {
+																																				// viewswitcher boundbox
+																																				width-request: 36;
+																																			}
+
+																																			Adw.ViewStack box_stack {
+																																				vexpand: true;
+
+																																				Adw.ViewStackPage {
+																																					name: "status::build";
+																																					child:
+																																						Box build_box {
+																																							styles ["build-box"]
+																																							orientation: vertical;
+																																							spacing: 4;
+
+																																							ScrolledWindow {
+																																								styles ["noscrollbar", "metal-fade-right"]
+																																								margin-end: 8;
+																																								vscrollbar-policy: never;
+
+																																								Label title_label {
+																																									halign: start;
+																																									xalign: 0;
+																																									label: "Injection In Progress";
+																																									styles ["title"]
+																																								}
+																																							}
+
+																																							ScrolledWindow {
+																																								min-content-height: 1;
+																																								max-content-height: 160;
+																																								vexpand: true;
+																																								propagate-natural-height: true;
+																																								hscrollbar-policy: never;
+
+																																								Box {
+																																									orientation: vertical;
+																																									margin-end: 24;
+
+																																									Grid {
+																																										column-spacing: 12;
+
+																																										Label {
+																																											label: _("Elapsed");
+
+																																											ellipsize: start;
+
+																																											halign: start;
+																																											xalign: 0;
+																																											valign: start;
+
+																																											styles ["dim-label", "line"]
+																																											layout {
+																																												row: 0;
+																																												column: 0;
+																																											}
+																																										}
+
+																																										Label time_elapsed_field {
+																																											label: "";
+
+																																											ellipsize: end;
+
+																																											halign: start;
+																																											xalign: 0;
+																																											valign: start;
+
+																																											styles ["line"]
+																																											layout {
+																																												row: 0;
+																																												column: 1;
+																																											}
+																																										}
+
+																																										Label {
+																																											label: _("Status");
+
+																																											ellipsize: start;
+
+																																											halign: start;
+																																											xalign: 0;
+																																											valign: start;
+
+																																											styles ["dim-label", "line"]
+																																											layout {
+																																												row: 1;
+																																												column: 0;
+																																											}
+																																										}
+
+																																										Label status_field {
+																																											label: "Loading subdirectory";
+
+																																											wrap: true;
+																																											wrap-mode: word_char;
+																																											lines: 3;
+																																											ellipsize: end;
+
+																																											halign: start;
+																																											xalign: 0;
+																																											valign: start;
+
+																																											styles ["line"]
+																																											layout {
+																																												row: 1;
+																																												column: 1;
+																																											}
+																																										}
+																																									}
+
+																																									Box {
+																																										height-request: 44;
+																																									}
+																																								}
+																																							}
+																																						};
+																																				}
+
+																																				Adw.ViewStackPage {
+																																					name: "status::default";
+																																					child:
+																																						Box status_box {
+																																							styles ["status-box"]
+																																							orientation: vertical;
+																																							spacing: 4;
+
+																																							ScrolledWindow {
+																																								styles ["noscrollbar", "metal-fade-right"]
+																																								margin-end: 8;
+																																								vscrollbar-policy: never;
+
+																																								Label status_title {
+																																									halign: start;
+																																									xalign: 0;
+																																									label: "A Problem Has Occurred";
+																																									styles ["title"]
+																																								}
+																																							}
+
+
+																																							ScrolledWindow {
+																																								min-content-height: 1;
+																																								max-content-height: 160;
+																																								vexpand: true;
+																																								propagate-natural-height: true;
+																																								hscrollbar-policy: never;
+
+																																								Box {
+																																									orientation: vertical;
+																																									margin-end: 24;
+
+																																									Label status_description {
+																																										visible: true;
+																																										xalign: 0;
+																																										yalign: 0;
+																																										//label: "Unknown error code.";
+																																										label: "No data found! Ensure your drives are connected or use \"Set location\". To redownload, remove the torrent and re-add it.";
+																																										wrap: true;
+																																										styles ["description"]
+																																									}
+
+																																									Box read-spacing {
+																																										height-request: 44;
+																																									}
+																																								}
+																																							}
+																																						};
+																																				}
+
+																																				Adw.ViewStackPage {
+																																					name: "console::default";
+																																					child:
+																																						Box console_box {
+																																							margin-top: 4;
+																																							margin-bottom: 4;
+
+																																							ScrolledWindow {
+																																								min-content-height: 1;
+																																								max-content-height: 160;
+																																								vexpand: true;
+																																								propagate-natural-height: true;
+																																								hscrollbar-policy: never;
+
+																																								Box {
+																																									orientation: vertical;
+
+																																									Label output {
+																																										halign: fill;
+																																										xalign: 0;
+																																										valign: fill;
+																																										yalign: 0;
+																																										justify: left;
+																																										use-markup: true;
+																																										hexpand: true;
+																																										//label: ";
+																																										label: "<span font-size=\"small\">Setting up win32api...\nLoading subdir. Error: dir not found!\nLoading subdir\nLoading subdir\nLoading subdir\nLoading subdir\nLoading subdir\nDone in 312ms.</span>";
+																																										wrap: true;
+																																										wrap-mode: char;
+																																										selectable: true;
+																																										styles ["terminal"]
+																																									}
+
+																																									Box {
+																																										height-request: 44;
+																																									}
+																																								}
+																																							}
+																																						};
+																																				}
+																																			}
+																																		};
+																																}
+																															};
+
+																														[overlay]
+																														Box shade {
+																															orientation: vertical;
+																															valign: end;
+
+																															Box {
+																																styles ["transition"]
+																																height-request: 54;
+																															}
+																														}
+
+																														[overlay]
+																														Box toolbar_layer {
+																															vexpand: false;
+																															valign: end;
+																															height-request: 56;
+																															halign: fill;
+
+																															Revealer {
+																																reveal-child: true;
+																																child:
+																																	Box panel {
+																																		styles ["panel", "hollow-full"]
+																																		vexpand: false;
+																																		spacing: 4;
+
+																																		ScrolledWindow {
+																																			margin-end: 4;
+																																			hexpand: true;
+																																			vscrollbar-policy: never;
+																																			valign: end;
+																																			height-request: 48;
+
+																																			Box {
+																																				spacing: 4;
+
+																																				Box {
+																																					margin-start: 4;
+																																					margin-end: 8;
+																																					spacing: 4;
+
+																																					Label headerbox_profile_label {
+																																						label: _("Unknown repository");
+																																						styles ["profile-label"]
+																																						valign: center;
+																																					}
+																																				}
+
+																																				Button {
+																																					visible: true;
+																																					styles ["flat", "compact-button"]
+																																					valign: center;
+
+																																					Box {
+																																						spacing: 4;
+
+																																						Image {
+																																							icon-name: "flash-memory-symbolic";
+																																							pixel-size: 24;
+																																						}
+
+																																						Label addon_count_label {
+																																							styles ["count"]
+																																							use-markup: true;
+																																							label: "27";
+																																							tooltip-text: "Number of Add-ons (27)";
+																																						}
+																																					}
+																																				}
+																																			}
+																																		}
+
+																																		Adw.ViewStack panel_controls {
+																																			Adw.ViewStackPage {
+																																				name: "default";
+																																				child: Box {};
+																																			}
+
+																																			Adw.ViewStackPage {
+																																				name: "status::clear";
+																																				child:
+																																					Box {
+																																						Button {
+																																							styles ["compact-button"]
+																																							label: _("Clear");
+																																							action-name: "status.pop";
+																																							valign: center;
+																																						}
+																																					};
+																																			}
+																																		}
+
+																																		Box {
+																																			height-request: 48;
+																																			valign: end;
+
+																																			Button {
+																																				styles ["flat", "compact-button"]
+																																				action-name: "headerbox.detach";
+																																				tooltip-text: _("Detach Panel");
+																																				valign: center;
+
+																																				$StvpkIconWithBadge {
+																																					icon-name: "pip-in-symbolic";
+																																					pixel-size: 24;
+																																					show-badge: false;
+																																					margin-top: 4;
+																																					margin-bottom: 4;
+																																				}
+																																			}
+																																		}
+																																	};
+																															}
+																														}
+
+																														[overlay]
+																														Box viewstackswitcher_layer {
+																															styles ["hollow-full"]
+																															orientation: vertical;
+																															halign: start;
+																															valign: end;
+
+																															Revealer {
+																																reveal-child: true;
+																																child:
+																																	Box {
+																																		orientation: vertical;
+
+																																		ToggleButton button_status {
+																																			styles ["icon", "red"]
+																																			icon-name: "error-symbolic";
+																																			halign: center;
+																																			action-name: "headerbox.box-switch";
+																																			action-target: "\"status_box\"";
+																																			tooltip-text: _("Status");
+																																		}
+
+																																		ToggleButton button_console {
+																																			styles ["icon"]
+																																			icon-name: "terminal-symbolic";
+																																			halign: center;
+																																			action-name: "headerbox.box-switch";
+																																			action-target: "\"console_box\"";
+																																			tooltip-text: _("Output");
+																																		}
+
+																																		Box {
+																																			hexpand: false;
+																																			height-request: 40;
+																																		}
+																																	};
+																															}
+																														}
+																													}
+																												};
+																										}
+
+																										Adw.ViewStackPage {
+																											name: "popped_view";
+																											child:
+																												Box {
+																													styles ["popped-view", "headerbox-card"]
+
+
+																													Box {
+																														valign: end;
+																														halign: end;
+																														orientation: vertical;
+
+																														Box {
+																															valign: fill;
+																															vexpand: true;
+																															height-request: 48;
+
+																															Box {
+																																halign: fill;
+																																hexpand: true;
+																															}
+
+																															Button {
+																																halign: end;
+																																tooltip-text: "Re-attach Panel";
+																																styles ["flat", "compact-button", "hollow-full"]
+																																action-name: "headerbox.attach";
+																																valign: center;
+
+																																Image {
+																																	icon-name: "pip-out-symbolic";
+																																	pixel-size: 24;
+																																	margin-top: 4;
+																																	margin-bottom: 4;
+																																}
+																															}
+																														}
+
+																														Box {
+																															valign: end;
+																														}
+																													}
+																												};
+																										}
+																									};
+																							};
+																					}
+																				}
+
+																				Revealer view_switcher_revealer {
+																					transition-type: slide_up;
+																					transition-duration: 200;
+																					reveal-child: true;
+																					child:
+																						Adw.ViewSwitcher view_switcher {
+																							name: "primary-view-switcher";
+																							policy: wide;
+																							stack: primary_view_stack;
+																						};
+																				}
+																			}
+																		}
+																	};
+
+																[start]
+																MenuButton {
+																	valign: start;
+																	margin-top: 4;
+
+																	visible: true;
+																	margin-start: 4;
+																	always-show-arrow: true;
+																	use-underline: true;
+																	label: _("_New");
+																	menu-model: add_menu;
+																	tooltip-text: _("Add or Import add-on");
+
+																	styles ["flat", "thin-button"]
+																}
+
+																[end]
+																WindowControls {
+																	valign: start;
+																	margin-top: 4;
+
+																	side: end;
+																}
+
+																[end]
+																MenuButton {
+																	valign: start;
+																	margin-top: 4;
+
+																	icon-name: "open-menu-symbolic";
+																	primary: true;
+																	popover:
+																		PopoverMenu primary_menu_popover {
+																			menu-model: primary_menu;
+																		};
+
+																	tooltip-text: _("Main Menu");
+																}
+
+																[end]
+																ToggleButton {
+																	valign: start;
+																	margin-top: 4;
+																	visible: false;
+																	can-focus: true;
+																	icon-name: "system-search-symbolic";
+																}
+															}
+														}
+
+														child:
+															Box {
+																orientation: vertical;
+
+																Box {
+																	height-request: 64;
+																}
+
+																Adw.ViewStack primary_view_stack {
+										                            vexpand: true;
+
+										                            Adw.ViewStackPage {
+										                              name: "main-page";
+										                              title: _("Load-order");
+										                              icon-name: "map-symbolic";
+										                              child: Box {
+																			margin-top: 24;
+																			margin-bottom: 24;
+																			spacing: 24;
+
+																			Adw.PreferencesGroup {
+																				title: _("Installed");
+
+																				Gtk.ListBox addon_list {}
+																			}
+																		};
+										                            }
+
+										                            Adw.ViewStackPage {
+										                              name: "download-page";
+										                              title: _("Browse");
+										                              icon-name: "harddisk-symbolic";
+										                              child: Box {};
+										                            }
+										                          }
+															};
+													}
+												}
+
+												Adw.ViewSwitcherBar {
+													stack: primary_view_stack;
+													reveal: false;
+												}
+											};
+									} // adwleafletpage
+
+									//Adw.LeafletPage {
+									//	name: "addon-details-page";
+									//	child: $StvpkAddonDetails addon_details {};
+									//}
+
+									//Adw.LeafletPage tertiary-page {
+									//	name: "addons-panel-disk-page";
+									//	child: $StvpkAddonsPanelDisk addons_panel_disk {};
+									//}
+								};
+						}
+
+						StackPage {
+							name: "stobo";
+							child:
+								Box {
+									name: "stobo";
+									orientation: vertical;
+
+									Adw.HeaderBar {
+										show-title: false;
+
+										[start]
+										Button {
+											icon-name: 'plus-large-symbolic';
+										}
+
+										[start]
+										Adw.Clamp {
+											vexpand: false;
+											name: "profile-bar";
+											maximum-size: 200;
+
+											Box {
+												orientation: vertical;
+
+												Box {
+													hexpand: true;
+													halign: fill;
+													width-request: 100;
+
+													Button {
+														vexpand: true;
+														halign: start;
+														hexpand: false;
+														tooltip-text: _('Switch Profile');
+
+														styles [
+															'flat',
+															'profile-button'
+														]
+
+														Box {
+															halign: center;
+															orientation: vertical;
+															valign: center;
+
+															Image {
+																icon-name: 'pan-up-symbolic';
+																pixel-size: 12;
+															}
+
+															Image {
+																icon-name: 'pan-down-symbolic';
+																pixel-size: 12;
+															}
+														}
+													}
+
+													Separator {}
+
+													ToggleButton {
+														vexpand: true;
+														halign: fill;
+														hexpand: true;
+														active: true;
+
+														styles [
+															'flat',
+															'profile-button'
+														]
+
+														Box {
+															halign: fill;
+															spacing: 6;
+
+															ScrolledWindow {
+																hscrollbar-policy: external;
+																vscrollbar-policy: never;
+																hexpand: true;
+
+																Label {
+																	hexpand: true;
+																	halign: fill;
+																	xalign: 0;
+																	label: 'I\'m scared of drawing so I\'m programming instead!';
+
+																	styles [
+																		'profile-name'
+																	]
+																}
+															}
+
+															Image {
+																icon-name: 'pan-down-symbolic';
+															}
+														}
+													}
+												}
+											}
+										}
+
+										[start]
+										Adw.SplitButton {
+											icon-name: 'play-large-symbolic';
+
+											styles [
+												'green'
+											]
+										}
+									}
+
+									Adw.ToastOverlay {
+										Adw.Clamp {
+											maximum-size: 300;
+
+											Adw.StatusPage {
+												vexpand: true;
+												title: _('Work in Progress');
+												description: _('Add-on list section is under construction');
+											}
+										}
+									}
+
+									Box {}
+								};
+						}
+
+						StackPage {
+							name: "tv";
+							child:
+								Adw.StatusPage {
+									icon-name: "tv-symbolic";
+									title: _("Not available in large size");
+								};
+						}
+
+						StackPage {
+							name: "ipod";
+							child:
+								Adw.StatusPage {
+									icon-name: "ipod-symbolic";
+									title: _("Not available in small size");
+								};
+						}
+					};
+			}
+		}
+	};
+}
+
+Adw.Window detachable {
+	default-width: 500;
+	hide-on-close: true;
+	content:
+		Box{
+			orientation: vertical;
+			Adw.HeaderBar {
+				show-start-title-buttons: false;
+				show-end-title-buttons: false;
+				styles ["flat"]
+				title-widget:
+
+					Adw.ViewSwitcher {
+						stack: modal_stack;
+						policy: wide;
+					};
+
+				[end]
+				Button {
+					styles ["flat"]
+					icon-name: "pip-out-symbolic";
+					action-name: "modal.headerbox.attach";
+					tooltip-text: "Re-attach Panel";
+				}
+			}
+
+			Adw.ViewStack modal_stack {
+				Adw.ViewStackPage {
+					name: "status_page";
+					title: _("Status");
+					icon-name: "info-symbolic";
+					child:
+						Adw.PreferencesPage {
+							Adw.PreferencesGroup {
+								Adw.ActionRow {
+									title: "hey";
+								}
+							}
+						};
+				}
+
+				Adw.ViewStackPage {
+					name: "console_page";
+					title: _("Output");
+					icon-name: "terminal-symbolic";
+					child:
+						Adw.PreferencesPage {
+							Adw.PreferencesGroup {
+								Adw.ActionRow {
+									title: "hey";
+								}
+							}
+						};
+				}
+			}
+		};
 }

@@ -1,0 +1,30 @@
+/**
+ * Inject button/area
+ */
+
+.inject-button-3 .red spinner {
+	color: @light_1;
+}
+
+/**
+ * Header Box
+ */
+
+@define-color metalcard #4a4a4a;
+@define-color metalcard-dark #d8d8d8;
+
+#headerbox .popped-view {
+	background-color: #000;
+}
+
+#headerbox .icon.red {
+	color: @red_1;
+}
+
+#headerbox .status-box.red label.title {
+	color: @red_1;
+}
+
+#headerbox .status-box.red label.description {
+	color: mix(@red_1, @dark_1, 0.3);
+}

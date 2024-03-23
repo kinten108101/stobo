@@ -14,8 +14,9 @@ imports.package.init({
 	// @ts-expect-error
 	datadir: "@datadir@",
 });
-setConsoleLogDomain(pkg.name);
+setConsoleLogDomain("stobo");
 GLib.set_application_name("Stobo");
+GLib.log_set_debug_enabled(true);
 
 globalThis.__DEV__ = pkg.name?.endsWith(".Devel") || false;
 

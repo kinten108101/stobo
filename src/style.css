@@ -1,0 +1,365 @@
+/**
+ * Inject button/area
+ */
+
+.inject-button-3 .blue > button {
+	color: @blue_2;
+}
+
+.inject-button-3 .red > button {
+	color: @red_2;
+}
+
+.inject-button-3 .red spinner {
+	color: @dark_5;
+}
+
+/**
+ * Profile Bar
+ */
+
+#roboken #profile-bar {
+	padding: 0px;
+	min-height: 0px;
+	border-radius: 8px;
+	background: alpha(currentColor, 0.075);
+}
+
+#roboken #profile-bar button {
+	margin: 0px;
+	padding-top: 0px;
+	padding-bottom: 0px;
+}
+
+#roboken #profile-bar separator {
+	transition-property: background;
+	transition-duration: 300ms;
+}
+
+#roboken #profile-bar:hover separator,
+#roboken #profile-bar.active separator {
+	background: transparent;
+	transition-property: background;
+	transition-duration: 300ms;
+}
+
+/**
+ * Header Box
+ */
+
+@define-color metalcard #EBEBEB;
+@define-color metalcard-dark #4a4a4a;
+
+#roboken #headerbox .headerbox-card {
+	background-color: @metalcard;
+	box-shadow: none;
+	padding-top: 4px;
+	padding-bottom: 4px;
+	padding-left: 12px;
+	padding-right: 12px;
+	border-radius: 8px;
+}
+
+#roboken #headerbox .profile-label {
+	font-weight: bold;
+}
+
+#roboken #headerbox .popped-view {
+	background-color: @metalcard-dark;
+	color: @light_1;
+}
+
+#roboken #headerbox .default-content {
+	margin-top: 8px;
+}
+
+#roboken #headerbox .status-box {
+}
+
+#roboken #headerbox .icon {
+	margin: 0;
+	padding-top: 12px;
+	padding-bottom: 12px;
+}
+
+#roboken #headerbox .icon.red {
+	color: @red_5;
+}
+
+#roboken #headerbox .status-box label.title {
+	padding-left: 0;
+	font-weight: bolder;
+}
+
+#roboken #headerbox .status-box label.description {
+	font-weight: bold;
+	font-size: small;
+	line-height: 1.3em;
+}
+
+#roboken #headerbox .status-box.red label.title {
+	color: @red_5;
+}
+
+#roboken #headerbox .status-box.red label.description {
+	color: mix(@red_5, @dark_1, 0.3);
+}
+
+#roboken #headerbox .peek-button {
+	color: @white_2;
+}
+
+#roboken #headerbox .status-box scrolledwindow {
+	padding: 0px;
+}
+
+#roboken #headerbox .metal-fade-right undershoot.right {
+	background: linear-gradient(
+		to right,
+		alpha(@metalcard, 0) 0%,
+		alpha(@metalcard, 1) 100%
+	);
+}
+
+#roboken #headerbox .metal-fade-top undershoot.top {
+	background: linear-gradient(
+		to top,
+		alpha(@metalcard, 0) 0%,
+		alpha(@metalcard, 0) 50%,
+		alpha(@metalcard, 1) 100%
+	);
+}
+
+scrolledwindow.noscrollbar scrollbar {
+	opacity: 0;
+}
+
+#roboken #headerbox .panel {
+	border-radius: 0px 0px 12px 12px;
+}
+
+#roboken #headerbox .hollow {
+	color: alpha(currentColor, 0.7);
+	transition-property: color;
+	transition-delay: 1s;
+	transition-duration: 500ms;
+}
+
+#roboken #headerbox .hollow:hover {
+	color: alpha(currentColor, 1);
+	transition-property: color;
+	transition-delay: 0s;
+	transition-duration: 300ms;
+}
+
+#roboken #headerbox .hollow-full {
+	opacity: 0.6;
+	transition-property: opacity;
+	transition-delay: 1s;
+	transition-duration: 500ms;
+}
+
+#roboken #headerbox .hollow-full:hover {
+	opacity: 1;
+	transition-property: opacity;
+	transition-delay: 0s;
+	transition-duration: 300ms;
+}
+
+#roboken #headerbox .panel .profile-name {
+	font-weight: normal;
+}
+
+#roboken #headerbox .transition {
+	background: linear-gradient(
+		to top,
+		alpha(@metalcard, 1) 0%,
+		alpha(@metalcard, 1) 70%,
+		alpha(@metalcard, 0) 100%
+	);
+}
+
+#roboken #headerbox .compact-button {
+	padding: 0px 12px;
+}
+
+#roboken #headerbox .count {
+	font-weight: normal;
+}
+
+#roboken #headerbox .status-box scrollbar {
+	margin-bottom: 36px;
+}
+
+#roboken #headerbox .panel scrolledwindow undershoot.right {
+	background: linear-gradient(
+		to right,
+		alpha(@metalcard, 0) 0%,
+		alpha(@metalcard, 0.2) 80%,
+		@metalcard 100%
+	);
+}
+
+#roboken #headerbox .panel scrolledwindow undershoot.left {
+	background: linear-gradient(
+		to left,
+		alpha(@metalcard, 0) 0%,
+		alpha(@metalcard, 0.2) 80%,
+		@metalcard 100%
+	);
+}
+
+#roboken #headerbox .panel scrollbar {
+	opacity: 0;
+}
+#roboken #headerbox .status-box scrolledwindow {
+	padding: 0px;
+}
+
+#roboken #headerbox .build-box label.title {
+	padding-left: 0;
+	font-weight: bolder;
+}
+
+#roboken #headerbox .build-box label.line {
+	font-weight: bold;
+	font-size: small;
+	line-height: 1.35em;
+}
+
+#roboken #headerbox .empty-status {
+	opacity: 0.1;
+}
+
+/**
+ * Theme Selector
+ *
+ * Adapted from https://gitlab.gnome.org/GNOME/gnome-text-editor/-/blob/cd6e111e3142a80f509684e65c104c8b3a097761/src/style.css
+ */
+
+themeselector {
+	margin: 9px;
+}
+
+themeselector checkbutton {
+	padding: 0;
+	min-height: 44px;
+	min-width: 44px;
+	padding: 1px;
+	background-clip: content-box;
+	border-radius: 9999px;
+	box-shadow: inset 0 0 0 1px @borders;
+}
+
+themeselector checkbutton.follow:checked,
+themeselector checkbutton.light:checked,
+themeselector checkbutton.dark:checked {
+	box-shadow: inset 0 0 0 2px @theme_selected_bg_color;
+}
+
+themeselector checkbutton.follow {
+	background-image: linear-gradient(
+		to bottom right,
+		#fff 49.99%,
+		#202020 50.01%
+	);
+}
+
+themeselector checkbutton.light {
+	background-color: #fff;
+}
+
+themeselector checkbutton.dark {
+	background-color: #202020;
+}
+
+themeselector checkbutton radio {
+	-gtk-icon-source: none;
+	border: none;
+	background: none;
+	box-shadow: none;
+	min-width: 12px;
+	min-height: 12px;
+	transform: translate(27px, 14px);
+	padding: 2px;
+}
+
+checkbutton.theme-selector radio:checked {
+	-gtk-icon-source: -gtk-icontheme("object-select-symbolic");
+	background-color: @theme_selected_bg_color;
+	color: @theme_selected_fg_color;
+}
+
+/**
+ * Spinning Button
+ */
+
+.invisible-text label {
+	opacity: 0;
+}
+
+/**
+ * Icon with badge
+ */
+
+badge {
+	margin-top: -8px;
+	margin-right: -8px;
+	padding-left: 6px;
+	padding-right: 6px;
+	font-size: x-small;
+	color: @light_1;
+	font-weight: bolder;
+	background-color: @blue_3;
+	border-radius: 99em;
+}
+
+/**
+ * Other
+ */
+
+.thin-button {
+	padding-bottom: 0;
+	padding-top: 0;
+	font-weight: bold;
+}
+
+label.terminal {
+	font-family: monospace;
+	font-size: smaller;
+}
+
+/**
+ * Profile Bar
+ */
+
+#stobo #profile-bar {
+  padding: 0px;
+  min-height: 0px;
+  border-radius: 8px;
+  background: alpha(currentColor, 0.075);
+}
+
+#stobo #profile-bar button {
+  margin: 0px;
+  padding-top: 0px;
+  padding-bottom: 0px;
+}
+
+#stobo #profile-bar separator {
+  transition-property: background;
+  transition-duration: 300ms;
+}
+
+#stobo #profile-bar:hover separator,
+#stobo #profile-bar.active separator {
+  background: transparent;
+  transition-property: background;
+  transition-duration: 300ms;
+}
+
+#stobo .green > button {
+  color: @green_2;
+}
+
+

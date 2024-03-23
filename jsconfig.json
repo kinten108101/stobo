@@ -1,11 +1,11 @@
 {
 	"compilerOptions": {
 		"paths": {
-				"gi://Gtk": ["node_modules/@girs/gtk-4.0/gtk-4.0.d.ts"],
-				"gi://Gdk": ["node_modules/@girs/gdk-4.0/gdk-4.0.d.ts"],
-				"resource:///com/github/kinten108101/Stobo/*": ["src/*"],
-				// force lsp to show error when use absolute path which gjs doesn't support
-				"src/*": ["fds/sfdsf/*"]
+			"gi://Gtk": ["node_modules/@girs/gtk-4.0/gtk-4.0.d.ts"],
+			"gi://Gdk": ["node_modules/@girs/gdk-4.0/gdk-4.0.d.ts"],
+			"resource:///com/github/kinten108101/Stobo/*": ["src/*"],
+			// force lsp to show error when use absolute path which gjs doesn't support
+			"src/*": ["fds/sfdsf/*"]
 		},
 		"lib": [
 			"ES2022" /* Template does not have this but this is available in GJS now. */
