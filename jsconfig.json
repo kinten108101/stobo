@@ -29,6 +29,7 @@
 	"include": [
 		// NOTE(kinten): Do not include gtk-4.0. adw-1 already did this, including again will cause conflict issues (?)
 		"node_modules/@girs/adw-1/adw-1.d.ts",
+		"node_modules/@girs/soup-3.0/soup-3.0.d.ts",
 		"node_modules/@girs/gjs/gjs.d.ts",
 		"node_modules/@girs/gjs/dom.d.ts",
 		"src/**/*.js",

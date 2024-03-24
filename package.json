@@ -3,6 +3,7 @@
 	"license": "MIT",
 	"devDependencies": {
 	    "@girs/adw-1": "^1.4.0-3.2.6",
-	    "@girs/gtk-4.0": "^4.12.3-3.2.6"
+	    "@girs/gtk-4.0": "^4.12.3-3.2.6",
+	    "@girs/soup-3.0": "^3.4.4-3.2.6"
 	}
 }

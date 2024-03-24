@@ -9,8 +9,9 @@ import { syncCreate } from "./lib/functional.js";
 import { addError } from "./services/status.js";
 import Window from "./window.blp" with { type: "uri" };
 import Preferences from "./preferences.blp" with { type: "uri" };
+import Matcher from "./matcher.blp" with { type: "uri" };
 import HeaderBox, { bindStatusToHeaderboxSection } from "./legacy/headerbox.js";
-import { defaultDecoder, listFileAsync, readJsonAsync, replaceJsonAsync } from "./lib/fileIO.js";
+import { defaultDecoder, isDirAsync, listFileAsync, makeDirNonstrictAsync, readJsonAsync, replaceJsonAsync } from "./lib/fileIO.js";
 import TOML from "./lib/fast-toml.js";
 import useFile from "./lib/file.js";
 import ExtendedBuilder from "./lib/builder.js";
@@ -42,14 +43,14 @@ import { addSignalMethods } from "./lib/signals.js";
  */
 
 const application = new Adw.Application({
-	application_id: pkg.name,
+	applicationId: pkg.name,
 	// Defaults to /com/github/kinten108101/Stobo/Devel
 	// if pkg.name is com.github.kinten108101.Stobo.Devel
-	resource_base_path: globalThis.resource_prefix,
+	resourceBasePath: globalThis.resource_prefix,
 });
 
 const settings = /** @type {{ get_string(key: string): string } & Gio.Settings} */ (/** @type unknown */(new Gio.Settings({
-	schema_id: pkg.name,
+	schemaId: pkg.name,
 })));
 
 /**
@@ -97,29 +98,107 @@ const cleanup = async (cancellable) => {
 };
 
 /**
+ * @param {Gio.File} root
  * @param {Gio.File[]} archives
  * @param {Gio.Cancellable | null} cancellable
  */
-const link = async (archives, cancellable) => {
+const link = async (root, archives, cancellable) => {
 	const preGameDir = settings.get_string("game-dir");
 	const gameDir = Gio.File.new_for_path(makeCanonicalPath(preGameDir));
 	const destDir = getDestinationDir(gameDir);
-	for (const key in archives) {
-		const x = archives[key];
+	for (const index in archives) {
+		const x = archives[index];
 		if (x === undefined) continue;
-		const dest = destDir.get_child(`${key}@stvpk.vpk`);
-		const symlinkValue = x.get_path();
-		if (symlinkValue === null) {
-			console.warn(`A source path is invalid. Skipping...`);
-			continue;
-		}
-		try {
-			await dest.make_symbolic_link_async(symlinkValue, GLib.PRIORITY_DEFAULT, cancellable);
-		} catch (error) {
-			logError(error);
-			continue;
+		if (await isDirAsync(x)) {
+			const subarchives = await listFileAsync(x);
+			for (const subindex in subarchives) {
+				const y = subarchives[subindex];
+				if (y === undefined) continue;
+				const dest = destDir.get_child(`${index}-${subindex}@stvpk.vpk`);
+				const symlinkValue = y.get_path();
+				if (symlinkValue === null) {
+					console.warn("source-path-missing");
+					continue;
+				}
+				try {
+					await dest.make_symbolic_link_async(symlinkValue, GLib.PRIORITY_DEFAULT, cancellable);
+				} catch (error) {
+					logError(error);
+					continue;
+				}
+			}
+		} else {
+			const dest = destDir.get_child(`${index}@stvpk.vpk`);
+			const symlinkValue = x.get_path();
+			if (symlinkValue === null) {
+				console.warn("source-path-missing");
+				continue;
+			}
+			try {
+				await dest.make_symbolic_link_async(symlinkValue, GLib.PRIORITY_DEFAULT, cancellable);
+			} catch (error) {
+				logError(error);
+				continue;
+			}
 		}
 	}
+	const rootPath = root.get_path();
+	if (rootPath === null) throw new Error;
+	const logFile = destDir.get_child(".stobo-log");
+	/**
+	 * @type object
+	 */
+	let logContent;
+	try {
+		logContent = await readJsonAsync(logFile);
+	} catch (error) {
+		logContent = {};
+	}
+	const entries = "entries" in logContent && Array.isArray(logContent.entries) ? logContent.entries : [];
+	await replaceJsonAsync({
+		entries: [{
+			root: collapsePath(rootPath)
+		}, ...entries],
+	}, logFile);
+};
+
+/**
+ * @param {(Awaited<ReturnType<typeof loadFolder>>)} entries
+ */
+const filter = (entries) => {
+	/**
+	 * @type Gio.File[]
+	 */
+	const files = [];
+	/**
+	 * @type Map<string, Gio.File[]>
+	 */
+	const shuffleGroups = new Map;
+	for (const key in entries) {
+		const x = entries[key];
+		if (x === undefined) continue;
+		if ("enabled" in x && x.enabled === false) continue;
+		const { archive } = x;
+		if ("shuffleGroup" in x && x.shuffleGroup !== null) {
+			const { shuffleGroup } = x;
+			let y = shuffleGroups.get(shuffleGroup);
+			if (y === undefined) {
+				y = [];
+				shuffleGroups.set(shuffleGroup, y);
+			}
+			y.push(archive);
+		} else {
+			files.push(archive);
+		}
+	}
+	for (const x of shuffleGroups) {
+		const shuffleFiles = x[1];
+		const selectIdx = Math.round(Math.random() * (shuffleFiles.length - 1));
+		const selected = shuffleFiles[selectIdx];
+		if (selected === undefined) continue;
+		files.push(selected);
+	}
+	return files;
 };
 
 /**
@@ -148,7 +227,8 @@ const loadFolder = async (dir) => {
 			if (archivePath === null) return null;
 			const firstDotIdx = archivePath.indexOf(".");
 			if (firstDotIdx === -1) return null;
-			const baseName = archivePath.substring(0, firstDotIdx);
+			const lastSlash = archivePath.lastIndexOf("/");
+			const baseName = archivePath.substring(lastSlash + 1, firstDotIdx);
 
 			const archiveData = {
 				name: baseName,
@@ -158,11 +238,11 @@ const loadFolder = async (dir) => {
 			const manifestData = await (async () => {
 				const manifest = manifests.find(y => {
 					const manifestPath = y.get_path();
-					console.log(manifestPath);
 					if (manifestPath === null) return null;
 					const firstDotIdx = archivePath.indexOf(".");
 					if (firstDotIdx === -1) return null;
-					const baseNameOfManifest = manifestPath.substring(0, firstDotIdx);
+					const lastSlash = archivePath.lastIndexOf("/");
+					const baseNameOfManifest = manifestPath.substring(lastSlash + 1, firstDotIdx);
 					return (baseName === baseNameOfManifest);
 				});
 				if (manifest === undefined) return null;
@@ -170,14 +250,38 @@ const loadFolder = async (dir) => {
 					const [bytes] = await manifest.load_contents_async(null);
 					const content = defaultDecoder.decode(bytes);
 					const value = TOML.parse(content);
-					if (!("steam_id" in value)) return null;
-					if (typeof value.steam_id !== "number") return null;
-					return /** @type {{ steam_id: number } & typeof value} */ (value);
+					const enabled = (() => {
+						if (!("enabled" in value)) return null;
+						if (typeof value["enabled"] !== "boolean") return null;
+						return value["enabled"];
+					})();
+					const steamId = (() => {
+						if (!("steam_id" in value)) return null;
+						if (typeof value["steam_id"] !== "number") return null;
+						return value["steam_id"];
+					})();
+					const note = (() => {
+						if (!("note" in value)) return null;
+						if (typeof value["note"] !== "string") return null;
+						return value["note"];
+					})();
+					const shuffleGroup = (() => {
+						if (!("shuffle_group" in value)) return null;
+						if (typeof value["shuffle_group"] !== "string") return null;
+						return value["shuffle_group"];
+					})();
+
+					return {
+						enabled,
+						steamId,
+						note,
+						shuffleGroup,
+					};
 				})();
 				if (value) {
 					return {
 						manifest,
-						steamId: value.steam_id,
+						...value
 					};
 				} else return null;
 			})();
@@ -223,9 +327,12 @@ const exportAsList = async ({ root, entries }) => {
 
 			const steamFields = "steamId" in x ? { steamId: x.steamId } : {};
 
+			const noteField = "note" in x ? { note: x.note } : {};
+
 			return {
 				...basicFields,
 				...steamFields,
+				...noteField,
 			};
 		}),
 		_version: 0,
@@ -272,8 +379,15 @@ settings.connect("changed::recent-workspaces", syncCreate(() => {
  * @param {string} val
  */
 const pushRecentWorkspace = (val) => {
-	if (_recentWorkspaces.includes(val)) return false;
-	settings.set_value("recent-workspaces", GLib.Variant.new_array(GLib.VariantType.new("s"), [GLib.Variant.new_string(val), ..._recentWorkspaces.map(x => GLib.Variant.new_string(x))]));
+	const existingPathIdx = _recentWorkspaces.indexOf(val);
+	const newVal = (() => {
+		if (existingPathIdx !== -1) {
+			return [val, ...([ ..._recentWorkspaces ].splice(existingPathIdx, 1))];
+		} else {
+			return [val, ..._recentWorkspaces];
+		}
+	})();
+	settings.set_value("recent-workspaces", GLib.Variant.new_array(GLib.VariantType.new("s"), newVal.map(x => GLib.Variant.new_string(x))));
 	return true;
 };
 
@@ -294,7 +408,7 @@ const createWindow = () => {
 	const events = addSignalMethods();
 
 	/**
-	 * @type {{ root: Gio.File; entries: Awaited<ReturnType<typeof loadFolder>> }=}
+	 * @type {Readonly<{ root: Gio.File; entries: Awaited<ReturnType<typeof loadFolder>> }>=}
 	 */
 	let _workspace;
 
@@ -315,7 +429,6 @@ const createWindow = () => {
 		folderStack.set_visible_child_name("has-folder");
 		(async () => {
 			const entries = await loadFolder(dir);
-			console.log(entries);
 			setWorkspace({
 				root: dir,
 				entries,
@@ -379,6 +492,36 @@ const createWindow = () => {
 	};
 
 	bindStatusToHeaderboxSection(headerbox, profileBar, window);
+
+	const matcherList = builder.get_object("matcher_list", Gtk.ListBox);
+
+	events.connect("workspaceChanged", () => {
+		if (_workspace === undefined) {
+			console.debug("Cannot update matcher list when there is no workspace");
+			return;
+		}
+
+		const { entries } = _workspace;
+
+		matcherList.remove_all();
+
+		entries.forEach(x => {
+			if ("steamId" in x) return;
+
+			const button = new Gtk.Button({
+				actionName: "win.show-matcher",
+			});
+
+			const row = new Adw.ActionRow({
+				title: x.name,
+				activatableWidget: button,
+			});
+
+			row.add_suffix(button);
+
+			matcherList.append(row);
+		});
+	});
 
 	(() => {
 		const actions = new Gio.SimpleActionGroup();
@@ -472,20 +615,17 @@ const createWindow = () => {
 
 		const headerbox_box_switch = new Gio.SimpleAction({
 			name: "box-switch",
-			parameter_type: GLib.VariantType.new("s"),
+			parameterType: GLib.VariantType.new("s"),
 		});
 
-		headerbox_box_switch.connect("activate", (_action, parameter) => {
+		headerbox_box_switch.connect("activate", syncCreate((_action, parameter) => {
 			if (!parameter) throw new Error;
 			const boxName = parameter.deepUnpack();
 			if (typeof boxName !== "string") throw new Error;
 			headerbox.setCurrentPage(boxName);
-		});
+		}, null, GLib.Variant.new_string("status_box")));
 
 		actions.add_action(headerbox_box_switch);
-
-		// Initialize default page
-	    headerbox_box_switch.activate(GLib.Variant.new_string("status_box"));
 
 		window.insert_action_group("headerbox", actions);
 	})();
@@ -507,8 +647,9 @@ const createWindow = () => {
 
 			(async () => {
 				await cleanup(cancellable);
-				const { entries } = _workspace;
-				await link(entries.map(x => x.archive), cancellable);
+				const { root, entries } = _workspace;
+				const archives = filter(entries);
+				await link(root, archives, cancellable);
 			})().catch(logError);
 		});
 
@@ -516,6 +657,39 @@ const createWindow = () => {
 
 		window.insert_action_group("inject", actions);
 	})();
+
+	/**
+	 * @type {ReturnType<typeof createMatcherWindow>?}
+	 */
+	let matcherWindow = null;
+
+	const showMatcher = new Gio.SimpleAction({
+		name: "show-matcher",
+		parameterType: GLib.VariantType.new("s")
+	});
+
+	showMatcher.connect("activate", (_, parameter) => {
+		if (parameter === null) throw new Error;
+
+		const [parameterJs] = parameter.get_string();
+
+		if (matcherWindow === null) {
+			const newWindow = createMatcherWindow.apply(window);
+
+			newWindow.connect("close-request", () => {
+				matcherWindow = null;
+				return false;
+			});
+
+			matcherWindow = newWindow;
+		}
+
+		matcherWindow.updateTarget(parameterJs);
+
+		matcherWindow.present();
+	});
+
+	window.add_action(showMatcher);
 
 	addError({
 		short: _("Disconnected"),
@@ -573,6 +747,37 @@ const createPreferences = () => {
 	window.insert_action_group("preferences", actions);
 
 	return window;
+};
+
+/**
+ * @this Gtk.Window
+ */
+function createMatcherWindow() {
+	const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(Matcher.substr(11)));
+
+	/**
+	 * @type {{} & Signal<"targetChanged", []> & SharedSignalMethods}
+	 */
+	const events = addSignalMethods();
+
+	const window = builder.get_object("window", Gtk.Window);
+
+	window.set_transient_for(this);
+
+	/**
+	 * @param {string} val
+	 */
+	const updateTarget = (val) => {
+
+	};
+
+	const actions = new Gio.SimpleActionGroup;
+
+	window.insert_action_group("matcher", actions);
+
+	return Object.assign(window, {
+		updateTarget,
+	});
 };
 
 (() => {

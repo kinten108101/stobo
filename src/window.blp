@@ -841,7 +841,7 @@ Adw.ApplicationWindow window {
 																orientation: vertical;
 
 																Box {
-																	height-request: 64;
+																	height-request: 96;
 																}
 
 																Adw.ViewStack primary_view_stack {
@@ -849,27 +849,100 @@ Adw.ApplicationWindow window {
 
 										                            Adw.ViewStackPage {
 																		name: "main-page";
-																		title: _("Load-order");
+																		title: _("Archives");
 																		icon-name: "map-symbolic";
 																		child:
-																			Box {
-																				margin-top: 24;
-																				margin-bottom: 24;
-																				spacing: 24;
+																			Gtk.ScrolledWindow {
+																				hexpand: true;
+																				vexpand: true;
 
-																				Adw.PreferencesGroup {
-																					title: _("Installed");
+																				Adw.Clamp {
+																					maximum-size: 400;
 
-																					Gtk.ListBox addon_list {}
+																					Box {
+																						margin-top: 24;
+																						margin-bottom: 24;
+																						spacing: 24;
+
+																						Adw.PreferencesGroup {
+																							title: _("Installed");
+
+																							Gtk.ListBox addon_list {}
+																						}
+																					}
 																				}
 																			};
 										                            }
 
 										                            Adw.ViewStackPage {
-																		name: "download-page";
-																		title: _("Browse");
+																		name: "analyzer";
+																		title: _("Analyzer");
 																		icon-name: "harddisk-symbolic";
-																		child: Box {};
+																		child:
+																			Adw.NavigationView analyzer_navigation_stack {
+																				Adw.NavigationPage {
+																					title: _("Home");
+																					tag: "home";
+																					child:
+																						Gtk.ScrolledWindow {
+																							hexpand: true;
+																							vexpand: true;
+
+																							Adw.Clamp {
+																								maximum-size: 400;
+
+																								Box {
+																									margin-top: 24;
+																									margin-bottom: 24;
+																									spacing: 24;
+
+																									Adw.PreferencesGroup {
+																										Adw.ActionRow {
+																											title: _("Synchronize");
+																											subtitle: _("Link existing add-ons to their upstream Steam Workshop counterparts");
+																											activatable-widget: sync_button;
+
+																											Gtk.Button sync_button {
+																												valign: center;
+																												icon-name: "go-next-symbolic";
+																												action-name: "navigation.push";
+																												action-target: "\"matcher\"";
+																												styles ["flat"]
+																											}
+																										}
+																									}
+																								}
+																							}
+																						};
+																				}
+
+																				Adw.NavigationPage {
+																					title: _("Matcher");
+																					tag: "matcher";
+																					child:
+																						Gtk.ScrolledWindow {
+																							hexpand: true;
+																							vexpand: true;
+
+																							Adw.Clamp {
+																								maximum-size: 400;
+
+																								Box {
+																									margin-top: 24;
+																									margin-bottom: 24;
+																									spacing: 24;
+
+																									Adw.PreferencesGroup {
+																										ListBox matcher_list {
+																											selection-mode: none;
+																											styles ['boxed-list']
+																										}
+																									}
+																								}
+																							}
+																						};
+																				}
+																			};
 										                            }
 										                          }
 															};

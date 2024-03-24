@@ -1,0 +1,90 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.Window window {
+	modal: true;
+
+	default-width: 400;
+	default-height: 500;
+
+	Adw.ToolbarView {
+		[top]
+		Adw.HeaderBar {
+			show-title: false;
+		}
+
+		content:
+			Gtk.Box {
+				orientation: vertical;
+
+				Gtk.Box content_head {
+					orientation: vertical;
+
+					Gtk.Revealer head_status_revealer {
+						transition-type: slide_up;
+						reveal-child: true;
+
+						Adw.StatusPage {
+							styles ['compact']
+							title: _('Find a Match');
+							description: _('Search for an add-on item on Steam Workshop that will be the upstream counterpart of X.');
+						}
+					}
+
+					Gtk.SearchEntry {
+						placeholder-text: _('Search');
+						margin-top: 6; // accounted headerbar's padding
+						margin-bottom: 12;
+						margin-start: 12;
+						margin-end: 12;
+					}
+				}
+
+				Gtk.Separator {}
+
+				Gtk.Stack content_stack {
+					transition-type: crossfade;
+
+					Gtk.StackPage {
+						name: 'default';
+						child:
+							Gtk.ScrolledWindow {
+								styles ['view']
+								vexpand: true;
+
+								Adw.Clamp {
+									Gtk.ListBox content_list {
+										margin-top: 12;
+										margin-bottom: 12;
+										margin-start: 12;
+										margin-end: 12;
+
+										valign: start;
+										selection-mode: none;
+
+										styles ['boxed-list']
+
+										Adw.ActionRow {
+											title: 'Add-on 1';
+										}
+
+										Adw.ActionRow {
+											title: 'Add-on 2';
+										}
+									}
+								}
+							};
+					}
+
+					Gtk.StackPage {
+						name: 'empty';
+						child:
+							Adw.StatusPage {
+								icon-name: 'document-open-recent-symbolic';
+								title: _('No Item Found');
+							};
+					}
+				}
+			};
+	}
+}

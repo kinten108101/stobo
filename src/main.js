@@ -1,11 +1,13 @@
 // Enforce specific library version
 import "gi://Gdk?version=4.0";
 import "gi://Gtk?version=4.0";
+import "gi://Soup?version=3.0";
 
-import Gio from 'gi://Gio';
-import Gdk from 'gi://Gdk';
-import Gtk from 'gi://Gtk';
-import Adw from 'gi://Adw';
+import Gio from "gi://Gio";
+import Gdk from "gi://Gdk";
+import Gtk from "gi://Gtk";
+import Adw from "gi://Adw";
+import Soup from "gi://Soup";
 
 // Use promisify helper API
 Gio._promisify(Gdk.Clipboard.prototype, 'read_text_async', 'read_text_finish');
@@ -13,7 +15,6 @@ Gio._promisify(Adw.MessageDialog.prototype, 'choose', 'choose_finish');
 Gio._promisify(Gtk.FileDialog.prototype, 'save', 'save_finish');
 Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish');
 // FIXME(kinten): Why is this not working
-// Gio._promisify(Tracker.SparqlStatement.prototype, 'execute_async', 'execute_finish');
 Gio._promisify(Gtk.FileLauncher.prototype, 'open_containing_folder', 'open_containing_folder_finish');
 
 /* Gio.Subprocess */
@@ -62,6 +63,11 @@ Gio._promisify(Gio.OutputStream.prototype, 'write_async', 'write_finish');
 Gio._promisify(Gio.OutputStream.prototype, 'write_bytes_async', 'write_bytes_finish');
 Gio._promisify(Gio.OutputStream.prototype, 'writev_all_async', 'writev_all_finish');
 Gio._promisify(Gio.OutputStream.prototype, 'writev_async', 'writev_finish');
+Gio._promisify(Soup.Session.prototype, 'preconnect_async', 'preconnect_finish');
+Gio._promisify(Soup.Session.prototype, 'send_and_read_async', 'send_and_read_finish');
+Gio._promisify(Soup.Session.prototype, 'send_and_splice_async', 'send_and_splice_finish');
+Gio._promisify(Soup.Session.prototype, 'send_async', 'send_finish');
+Gio._promisify(Soup.Session.prototype, 'websocket_connect_async', 'websocket_connect_finish');
 
 // register custom widgets
 import "./lib/iconWithBadge.js";

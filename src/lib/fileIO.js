@@ -20,7 +20,7 @@ export function isDir(file) {
  * @param {Gio.File} file
  */
 export async function isDirAsync(file) {
-	const info = await file.query_info_async(Gio.FILE_ATTRIBUTE_FILESYSTEM_TYPE, Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null);
+	const info = await file.query_info_async(Gio.FILE_ATTRIBUTE_STANDARD_TYPE, Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null);
 	const type = info.get_file_type();
 	if (type !== Gio.FileType.DIRECTORY) {
 		return false;
