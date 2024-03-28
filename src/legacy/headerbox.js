@@ -275,7 +275,7 @@ const HeaderBox = (builder) => {
 	const frameStack = builder.get_object("frame_stack", Adw.ViewStack);
 	const contentTypeStack = builder.get_object("content_type_stack", Adw.ViewStack);
 	const buttonStatus = builder.get_object("button_status", Gtk.ToggleButton);
-	const buttonConsole = builder.get_object("button_status", Gtk.ToggleButton);
+	const buttonConsole = builder.get_object("button_console", Gtk.ToggleButton);
 	const boxStack = builder.get_object("box_stack", Adw.ViewStack);
 	const panelControls = builder.get_object("panel_controls", Adw.ViewStack);
 	const detachable = builder.get_object("detachable", Adw.Window);
@@ -303,10 +303,11 @@ const HeaderBox = (builder) => {
 	let currentPage = "status_box";
 
 	/**
-	 * @param {keyof pages} val
+	 * @param {string} val
 	 */
 	const setCurrentPage = (val) => {
-		currentPage = val;
+		if (!(val in pages)) throw new Error;
+		currentPage = /** @type {keyof pages} */(val);
 		events.emit("currentPage");
 	};
 
@@ -342,9 +343,9 @@ const HeaderBox = (builder) => {
 			const { button } = x;
 			if (key !== currentPage) {
 				button.set_active(false);
-				return;
+			} else {
+				button.set_active(true);
 			}
-			button.set_active(true);
 		});
 	}
 
@@ -501,11 +502,11 @@ const HeaderBox = (builder) => {
 			}
 		})();
 		buttonStatus.set_css_classes(
-			pick(buttonStatus.css_classes, style)
+			pick(buttonStatus.cssClasses, style)
 		);
 		buttonStatus.set_icon_name(icon_name);
 		statusBox.set_css_classes(
-			pick(statusBox.css_classes, style)
+			pick(statusBox.cssClasses, style)
 		);
 	};
 

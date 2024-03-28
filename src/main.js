@@ -75,6 +75,12 @@ import "./lib/themeselector.js";
 
 // register icons
 import "./icons/addon-box.svg" with { type: "icon" };
+import "./icons/error-symbolic.svg" with { type: "icon" };
+import "./icons/flash-memory-symbolic.svg" with { type: "icon" };
+import "./icons/info-symbolic.svg" with { type: "icon" };
+import "./icons/key-symbolic.svg" with { type: "icon" };
+import "./icons/move-tool-symbolic.svg" with { type: "icon" };
+import "./icons/play-symbolic.svg" with { type: "icon" };
 import "./icons/pip-in-symbolic.svg" with { type: "icon" };
 import "./icons/pip-out-symbolic.svg" with { type: "icon" };
 

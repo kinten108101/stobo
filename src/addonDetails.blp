@@ -1,0 +1,87 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.Window addon_details_window {
+	default-width: 400;
+	hide-on-close: true;
+	modal: true;
+	resizable: false;
+
+	Box {
+		orientation: vertical;
+
+		Adw.HeaderBar {
+			title-widget: Adw.WindowTitle {};
+			styles ["flat"]
+		}
+
+		Adw.PreferencesPage {
+			Adw.PreferencesGroup {
+				Gtk.Grid {
+					column-spacing: 6;
+					column-homogeneous: true;
+
+					Gtk.Button {
+						hexpand: true;
+						layout {
+							row: 0;
+							column: 0;
+						}
+
+						Gtk.Box {
+							margin-top: 4;
+							margin-bottom: 4;
+							orientation: vertical;
+
+							Gtk.Image {
+								icon-name: "document-open-symbolic";
+							}
+
+							Gtk.Label {
+								label: _("Show in Folder");
+								wrap: true;
+								wrap-mode: word_char;
+								justify: center;
+								styles ["text-sm"]
+							}
+						}
+					}
+
+					Gtk.Button {
+						hexpand: true;
+						layout {
+							row: 0;
+							column: 1;
+						}
+
+						Gtk.Box {
+							margin-top: 4;
+							margin-bottom: 4;
+							orientation: vertical;
+
+							Gtk.Image {
+								icon-name: "move-tool-symbolic";
+							}
+
+							Gtk.Label {
+								label: "Move to Index...";
+								wrap: true;
+								wrap-mode: word_char;
+								justify: center;
+								styles ["text-sm"]
+							}
+						}
+					}
+
+					Gtk.Button {
+						hexpand: true;
+						layout {
+							row: 0;
+							column: 2;
+						}
+					}
+				}
+			}
+		}
+	}
+}

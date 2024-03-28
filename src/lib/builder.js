@@ -42,7 +42,9 @@ const ExtendedBuilder = (builder) => {
 				&& property_name === 'get_object') {
 				return get_object_resolver;
 			}
-			return Reflect.get(obj, property_name, receiver);
+			const val = Reflect.get(obj, property_name, receiver);
+			if ("apply" in val) return val.bind(obj);
+			return val;
 		}
 	});
 };

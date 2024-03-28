@@ -123,7 +123,7 @@ export class BuildStatus extends Status {
  * @type {Gio.ListStore<Status>}
  */
 export const store = new Gio.ListStore({
-	item_type: Status.$gtype,
+	itemType: Status.$gtype,
 });
 
 export const topFactory = (() => {

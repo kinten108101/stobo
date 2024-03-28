@@ -1,5 +1,7 @@
 import GLib from "gi://GLib";
+import GObject from "gi://GObject";
 import Gio from "gi://Gio";
+import Gdk from "gi://Gdk";
 import Gtk from "gi://Gtk";
 import Adw from "gi://Adw";
 import { gettext as _ } from "gettext";
@@ -8,6 +10,7 @@ import extendBuilder from "./lib/builder.js";
 import { syncCreate } from "./lib/functional.js";
 import { addError } from "./services/status.js";
 import Window from "./window.blp" with { type: "uri" };
+import AddonDetails from "./addonDetails.blp" with { type: "uri" };
 import Preferences from "./preferences.blp" with { type: "uri" };
 import Matcher from "./matcher.blp" with { type: "uri" };
 import HeaderBox, { bindStatusToHeaderboxSection } from "./legacy/headerbox.js";
@@ -41,6 +44,22 @@ import { addSignalMethods } from "./lib/signals.js";
  *      },
  * }} Signal
  */
+
+var Stobo = {
+	Object: {
+		/**
+		 * @template {object} SrcType
+		 * @template {object} PropsType
+		 * @param {SrcType} src
+		 * @param {(target: SrcType) => PropsType} props
+		 * @returns {SrcType & PropsType}
+		 * @experimental
+		 */
+		assign: (src, props) => {
+			return Object.assign(src, props(src));
+		},
+	}
+};
 
 const application = new Adw.Application({
 	applicationId: pkg.name,
@@ -110,7 +129,11 @@ const link = async (root, archives, cancellable) => {
 		const x = archives[index];
 		if (x === undefined) continue;
 		if (await isDirAsync(x)) {
-			const subarchives = await listFileAsync(x);
+			const subarchives = (await listFileAsync(x)).filter(x => {
+				const path = x.get_path();
+				if (path === null) return false;
+				return path.includes(".vpk", path.length - 4);
+			});
 			for (const subindex in subarchives) {
 				const y = subarchives[subindex];
 				if (y === undefined) continue;
@@ -164,8 +187,9 @@ const link = async (root, archives, cancellable) => {
 
 /**
  * @param {(Awaited<ReturnType<typeof loadFolder>>)} entries
+ * @param {Readonly<Map<string, string>>} previousShuffleChoices
  */
-const filter = (entries) => {
+const filter = (entries, previousShuffleChoices) => {
 	/**
 	 * @type Gio.File[]
 	 */
@@ -191,14 +215,30 @@ const filter = (entries) => {
 			files.push(archive);
 		}
 	}
+	/**
+	 * @type Map<string, string>
+	 */
+	const shuffleChoices = new Map;
 	for (const x of shuffleGroups) {
-		const shuffleFiles = x[1];
+		const [groupName, preShuffleFiles] = x;
+		const shuffleFiles = (() => {
+			const previousChoice = previousShuffleChoices.get(groupName);
+			if (previousChoice === undefined) return preShuffleFiles;
+			const foundIdx = preShuffleFiles.map(x => x.get_basename()).indexOf(previousChoice);
+			if (foundIdx !== -1) {
+				preShuffleFiles.splice(foundIdx, 1);
+			}
+			return preShuffleFiles;
+		})();
 		const selectIdx = Math.round(Math.random() * (shuffleFiles.length - 1));
 		const selected = shuffleFiles[selectIdx];
 		if (selected === undefined) continue;
+		const name = selected.get_basename();
+		if (name === null) continue;
+		shuffleChoices.set(groupName, name);
 		files.push(selected);
 	}
-	return files;
+	return { files, shuffleChoices: /** @type {Readonly<typeof shuffleChoices>} */(shuffleChoices) };
 };
 
 /**
@@ -391,6 +431,53 @@ const pushRecentWorkspace = (val) => {
 	return true;
 };
 
+/**
+ * @param {Gio.File} root
+ * @param {"manual-order" | "shuffle-choices"} filename
+ */
+const loadFromWorkspaceStorage = async (root, filename) => {
+	const workspaceData = root.get_child(".stobo");
+	await makeDirNonstrictAsync(workspaceData);
+	const manualOrderFile = workspaceData.get_child(filename);
+	let content = await readJsonAsync(manualOrderFile);
+
+	switch (filename) {
+	case "manual-order":
+		{
+			if (!Array.isArray(content)) {
+				throw new Error;
+			}
+
+			for (const index in content) {
+				const x = content[index];
+				if (typeof x !== "string") throw new Error;;
+			}
+		}
+		break;
+	case "shuffle-choices":
+		{
+			if (typeof content !== "object" || content === null) {
+				throw new Error;
+			}
+
+			const newVal = new Map;
+
+			for (const key in content) {
+				const x = content[key];
+				if (typeof x !== "string") throw new Error;
+				newVal.set(key, x);
+			}
+
+			content = newVal;
+		}
+		break;
+	default:
+		throw new Error;
+	}
+
+	return content;
+};
+
 const createWindow = () => {
 	const builder = extendBuilder(Gtk.Builder.new_from_resource(Window.substr(11)));
 
@@ -408,14 +495,30 @@ const createWindow = () => {
 	const events = addSignalMethods();
 
 	/**
-	 * @type {Readonly<{ root: Gio.File; entries: Awaited<ReturnType<typeof loadFolder>> }>=}
+	 * @type {Readonly<{
+	 * 	root: Gio.File;
+	 * 	entries: Awaited<ReturnType<typeof loadFolder>>;
+	 *  requestChangeManualOrder(params: {
+ 	 * 		type: "move";
+ 	 * 		src: string;
+ 	 *  	target: string;
+	 * 	}): void;
+	 *  get manualOrder(): Readonly<string[]>;
+	 *  disconnect(id: number): void;
+	 *  connect(signal: string, cb: (...args: any[]) => void): number;
+	 *  requestSaveShuffleChoices(choices: ReturnType<typeof filter>["shuffleChoices"]): void;
+	 * 	get shuffleChoices(): Readonly<Map<string, string>>;
+	 * 	onFsChanged(cb: () => void): void;
+	 * 	destroy(): void;
+	 * }>=}
 	 */
 	let _workspace;
 
 	/**
-	 * @param {typeof _workspace} val
+	 * @param {Exclude<typeof _workspace, undefined>} val
 	 */
 	const setWorkspace = (val) => {
+		_workspace?.destroy();
 		_workspace = val;
 		events.emit("workspaceChanged");
 	};
@@ -423,18 +526,197 @@ const createWindow = () => {
 	/**
 	 * Has side effects
 	 *
-	 * @param {Gio.File} dir
+	 * @param {Gio.File} root
 	 */
-	const updateWorkspace = (dir) => {
+	const updateWorkspace = (root) => {
 		folderStack.set_visible_child_name("has-folder");
 		(async () => {
-			const entries = await loadFolder(dir);
-			setWorkspace({
-				root: dir,
-				entries,
+			const entries = await loadFolder(root);
+
+			const monitor = root.monitor_directory(Gio.FileMonitorFlags.NONE, null);
+
+			/**
+			 * @type {number[]}
+			 */
+			const monitorBindings = [];
+
+			/**
+			 * @type {{}
+			 * 	& Signal<"changed::manual-order", [typeof _manualOrder]>
+			 * 	& Signal<"changed::shuffle-choices", [typeof _shuffleChoices]>
+			 * 	& SharedSignalMethods}
+			 */
+			const events = addSignalMethods();
+
+			/**
+			 * @type Readonly<string[]>
+			 */
+			let _manualOrder = [];
+
+			/**
+			 * @type {Map<string, string>}
+			 */
+			let _shuffleChoices = new Map;
+
+			/**
+			 * @param {typeof _manualOrder} val
+			 */
+			const setManualOrder = (val) => {
+				_manualOrder = val;
+				events.emit("changed::manual-order", _manualOrder);
+			};
+
+			/**
+			 * @type {Exclude<typeof _workspace, undefined>["requestChangeManualOrder"]}
+			 */
+			const requestChangeManualOrder = ({ type, ...data }) => {
+				switch (type) {
+				case "move":
+					{
+						const { src, target } = data;
+						const from = _manualOrder.indexOf(src);
+						if (from === -1) {
+							console.warn("changed::manual-order: non-existent move target");
+							break;
+						}
+						const to = _manualOrder.indexOf(target);
+						if (to === -1) {
+							console.warn("changed::manual-order: non-existent move target");
+							break;
+						}
+						const newOrder = [..._manualOrder];
+						const [draggable] = newOrder.splice(from, 1);
+						if (draggable === undefined) {
+							console.warn("changed::manual-order: non-existent move target");
+							break;
+						}
+						newOrder.splice(to, 0, draggable);
+						setManualOrder(newOrder);
+					}
+					break;
+				default:
+					break;
+				}
+			}
+
+			/**
+			 * @type {Exclude<typeof _workspace, undefined>["requestSaveShuffleChoices"]}
+			 */
+			const requestSaveShuffleChoices = (choices) => {
+				_shuffleChoices = choices;
+				events.emit("changed::shuffle-choices", choices);
+			};
+
+			events.connect("changed::manual-order", (_, newVal) => {
+				(async () => {
+					const workspaceData = root.get_child(".stobo");
+					await makeDirNonstrictAsync(workspaceData);
+					const manualOrderFile = workspaceData.get_child("manual-order");
+					await replaceJsonAsync(newVal, manualOrderFile);
+				})().catch(logError);
 			});
-			const dirPath = dir.get_path();
+
+			events.connect("changed::shuffle-choices", (_, newVal) => {
+				(async () => {
+					const workspaceData = root.get_child(".stobo");
+					await makeDirNonstrictAsync(workspaceData);
+					const dest = workspaceData.get_child("shuffle-choices");
+					/**
+					 * @type {{ [key: string]: string }}
+					 */
+					const obj = {};
+					console.log(newVal instanceof Map);
+					newVal.forEach((val, key) => {
+						obj[key] = val;
+					});
+					await replaceJsonAsync(obj, dest);
+				})().catch(logError);
+			});
+
+			const savedOrder = await (async () => {
+				/**
+				 * @type {string[]}
+				 */
+				let value;
+				try {
+					value = await loadFromWorkspaceStorage(root, "manual-order");
+				} catch (error) {
+					logError(error);
+					value = [];
+				}
+				return value;
+			})();
+
+			/**
+			 * @type {string[]}
+			 */
+			const newOrder = [];
+
+			const physicalOrderTemp = entries.map(x => x.name);
+
+			for (const index in savedOrder) {
+				const x = savedOrder[index];
+				if (x === undefined) continue;
+				const foundIdx = physicalOrderTemp.indexOf(x);
+				if (foundIdx !== -1) {
+					newOrder.push(x);
+					physicalOrderTemp.splice(foundIdx, 1);
+				}
+			}
+
+			for (const index in physicalOrderTemp) {
+				const x = physicalOrderTemp[index];
+				if (x === undefined) continue;
+				newOrder.push(x);
+			}
+
+			setManualOrder(newOrder);
+
+			const savedShuffleChoices = await (async () => {
+				/**
+				 * @type {Map<string, string>}
+				 */
+				let value;
+				try {
+					value = await loadFromWorkspaceStorage(root, "shuffle-choices");
+				} catch (error) {
+					logError(error);
+					value = new Map;
+				}
+				return value;
+			})();
+
+			_shuffleChoices = savedShuffleChoices;
+			events.emit("changed::shuffle-choices", savedShuffleChoices);
+
+			setWorkspace({
+				root,
+				entries,
+				onFsChanged(cb) {
+					monitorBindings.push(monitor.connect("changed", cb));
+				},
+				requestChangeManualOrder,
+				get manualOrder() {
+					return _manualOrder;
+				},
+				disconnect: (id) => events.disconnect(id),
+				// @ts-expect-error
+				connect: (signal, callback) => events.connect(signal, callback),
+				requestSaveShuffleChoices,
+				get shuffleChoices() {
+					return _shuffleChoices;
+				},
+				destroy() {
+					events.disconnectAll();
+					for (const x of monitorBindings) {
+						monitor.disconnect(x);
+					}
+				}
+			});
+
+			const dirPath = root.get_path();
 			if (dirPath === null) throw new Error;
+
 			pushRecentWorkspace(collapsePath(dirPath));
 		})().catch(logError);
 	};
@@ -466,6 +748,7 @@ const createWindow = () => {
 		const profileBar = builder.get_object("profile_bar", Adw.Clamp);
 		const primaryButton = builder.get_object("primary_button", Gtk.ToggleButton);
 		const profileLabel = builder.get_object("profile_label", Gtk.Label);
+		const profileLabelStack = builder.get_object("profile_label_stack", Gtk.Stack);
 
 		primaryButton.connect("notify::active", syncCreate(() => {
 			if (primaryButton.active) {
@@ -475,9 +758,27 @@ const createWindow = () => {
 			}
 		}));
 
+		/**
+		 * @type {GLib.Source=}
+		 */
+		let useLabelTimeout = undefined;
+
+		/**
+		 * @param {string} _val
+		 */
+		const toast = (_val) => {
+			if (useLabelTimeout !== undefined) useLabelTimeout.destroy();
+			profileLabelStack.set_visible_child_name("2");
+			// @ts-expect-error
+			useLabelTimeout = setTimeout(() => {
+				profileLabelStack.set_visible_child_name("1");
+			}, 1000);
+		};
+
 		return {
 			primaryButton,
-			profileLabel
+			profileLabel,
+			toast,
 		};
 	})();
 
@@ -492,6 +793,305 @@ const createWindow = () => {
 	};
 
 	bindStatusToHeaderboxSection(headerbox, profileBar, window);
+
+	const banner = builder.get_object("banner", Adw.Banner);
+
+	events.connect("workspaceChanged", () => {
+		if (_workspace === undefined) {
+			console.debug("Cannot update banner when there is no workspace");
+			return;
+		}
+
+		banner.set_revealed(false);
+
+		_workspace.onFsChanged(() => {
+			banner.set_revealed(true);
+		});
+	});
+
+	const addonList = builder.get_object("addon_list", Gtk.ListBox);
+
+
+
+	const dropTarget = Gtk.DropTarget.new(Gtk.ListBoxRow.$gtype, Gdk.DragAction.MOVE);
+	addonList.add_controller(dropTarget);
+
+	// Drop Handling
+	dropTarget.connect("drop", (_drop, value, _x, y) => {
+		if (!("srcName" in value) || typeof value.srcName !== "string") throw new Error;
+
+		if (_workspace === undefined) {
+			console.debug("Cannot update addon list when there is no workspace");
+			return;
+		}
+
+		const targetRow = addonList.get_row_at_y(y);
+		// If value or the target row is null, do not accept the drop
+		if (value === null || targetRow === null) {
+			console.debug("Items are null");
+			return false;
+		}
+
+		if (!("srcName" in targetRow) || typeof targetRow.srcName !== "string") throw new Error;
+
+		const targetIndex = targetRow.get_index();
+
+		addonList.remove(value);
+		addonList.insert(value, targetIndex);
+		_workspace.requestChangeManualOrder({
+			type: "move",
+			src: value.srcName,
+			target: targetRow.srcName,
+		});
+
+		targetRow.set_state_flags(Gtk.StateFlags.NORMAL, true);
+
+		// FIXME(kinten): This will fix a bug where entire view is scrolled to top/bottom on dropping. But now user cannot focus on each row, hurts accessibility.
+		addonList.set_can_focus(false);
+
+		// If everything is successful, return true to accept the drop
+		return true;
+	});
+
+
+	const headerbarTitle = builder.get_object("headerbar_title", Adw.Clamp);
+
+	const movingDropTarget = Gtk.DropTarget.new(Gtk.ListBoxRow.$gtype, Gdk.DragAction.MOVE);
+	headerbarTitle.add_controller(movingDropTarget);
+
+	movingDropTarget.connect("drop", (_drop, _value, _x, _y) => {
+		return true;
+	});
+
+	const headerbarTitleDragRevealer = builder.get_object("headerbar_title_drag_revealer", Gtk.Revealer);
+
+	movingDropTarget.connect("enter", () => {
+		headerbarTitleDragRevealer.set_reveal_child(true);
+		headerbarTitle.add_css_class("blurred");
+		return Gdk.DragAction.MOVE;
+	});
+
+	movingDropTarget.connect("leave", () => {
+		headerbarTitleDragRevealer.set_reveal_child(false);
+		headerbarTitle.remove_css_class("blurred");
+	});
+
+	builder.add_from_resource(AddonDetails.substr(11));
+
+	const addonDetailsWindow = Stobo.Object.assign(
+		builder.get_object("addon_details_window", Adw.Window),
+		(target) => ({
+			title_widget: (() => {
+				const content = target.get_content();
+				if (!(content instanceof Gtk.Box)) throw new Error;
+				const headerbar = content.get_first_child();
+				if (!(headerbar instanceof Adw.HeaderBar)) throw new Error;
+				const title = headerbar.get_title_widget();
+				if (!(title instanceof Adw.WindowTitle)) throw new Error;
+				return title;
+			})(),
+		})
+	);
+	addonDetailsWindow.set_transient_for(window);
+
+	events.connect("workspaceChanged", () => {
+		if (_workspace === undefined) {
+			console.debug("Cannot update addon list when there is no workspace");
+			return;
+		}
+
+		const { entries, manualOrder } = _workspace;
+
+		addonList.remove_all();
+
+		manualOrder.forEach(key => {
+			if (_workspace === undefined) {
+				console.debug("Cannot update addon list when there is no workspace");
+				return;
+			}
+
+			const x = entries.find(y => y.name === key);
+
+			if (x === undefined) return;
+
+			const row = Object.assign(new Adw.ActionRow({
+				title: x.name,
+				activatable: true,
+			}), {
+				srcName: x.name,
+			});
+
+			row.connect("activated",
+				/**
+				 * @param {typeof row} y
+				 */
+				y => {
+					// FIXME(kinten): This will fix a bug where entire view is scrolled to top/bottom on dropping. But now user cannot focus on each row, hurts accessibility.
+					addonList.set_can_focus(true);
+					const popover = new Gtk.PopoverMenu;
+					popover.set_parent(y);
+					popover.set_offset(0, -(y.get_height() / 4));
+					popover.set_menu_model((() => {
+						const menu = new Gio.Menu;
+
+						menu.append_submenu(_("Move to Index..."), (() => {
+							const menu = new Gio.Menu;
+
+							const widgetPlaceholder = new Gio.MenuItem;
+							widgetPlaceholder.set_attribute_value("custom", GLib.Variant.new_string("move-to-index-widget"));
+							menu.append_item(widgetPlaceholder);
+
+							return menu;
+						})())
+
+						const more = new Gio.MenuItem;
+						more.set_label(_("Configure"));
+						more.set_action_and_target_value("workspace.show-details", GLib.Variant.new_string(y.srcName));
+
+						menu.append_item(more);
+
+						return menu;
+					})());
+
+					const container = new Adw.Clamp;
+					container.set_maximum_size(120);
+					container.set_margin_top(12);
+					container.set_margin_bottom(12);
+
+					container.set_child((() => {
+						const box = new Gtk.Box;
+						box.add_css_class("linked");
+
+						const entry = new Gtk.Entry;
+						entry.set_size_request(56, -1);
+						box.append(entry);
+
+						box.append((() => {
+							const button = new Gtk.Button;
+							button.set_label(_("Move"));
+							button.add_css_class("suggested-action");
+							button.connect("clicked", () => {
+								if (_workspace === undefined) return;
+
+								const targetIdx = Math.min(Math.max(Number(entry.text), 0), _workspace.manualOrder.length - 1);
+								const targetRow = addonList.get_row_at_index(targetIdx);
+								if (targetRow === null) return;
+								if (!("srcName" in targetRow) || typeof targetRow.srcName !== "string") return;
+
+								addonList.remove(y);
+								addonList.insert(y, targetIdx);
+
+								_workspace.requestChangeManualOrder({
+									type: "move",
+									src: row.srcName,
+									target: targetRow.srcName,
+								});
+
+								addonList.set_can_focus(false);
+
+								popover.set_visible(false);
+							})
+							return button;
+						})());
+
+						return box;
+					})());
+
+					popover.add_child(container, "move-to-index-widget");
+
+					popover.set_visible(true);
+				}
+			);
+
+			if ("enabled" in x && x.enabled === false) {
+				row.add_css_class("dim-label");
+			}
+
+			if ("shuffleGroup" in x && x.shuffleGroup !== null) {
+				const { shuffleGroup } = x;
+				const button = new Gtk.Button();
+				button.set_valign(Gtk.Align.CENTER);
+				button.set_label(shuffleGroup);
+				button.add_css_class("tag");
+				row.add_suffix(button);
+
+				_workspace.connect("changed::shuffle-choices", syncCreate((_, newVal) => {
+					const choice = newVal.get(shuffleGroup);
+					if (choice === undefined) return;
+					button.set_tooltip_text(`Last choice: ${choice}`);
+				}, null, _workspace.shuffleChoices));
+			}
+
+			if ("note" in x && x.note !== null) {
+				const { note } = x;
+				const info = new Gtk.Button();
+				info.set_valign(Gtk.Align.CENTER);
+				info.set_tooltip_text(note);
+				info.add_css_class("flat");
+				info.set_icon_name("info-symbolic");
+				row.add_suffix(info);
+			}
+
+			let dragX = NaN;
+			let dragY = NaN;
+
+			const dropController = new Gtk.DropControllerMotion;
+
+			const dragSource = new Gtk.DragSource({
+				actions: Gdk.DragAction.MOVE,
+			});
+
+			row.add_controller(dragSource);
+			row.add_controller(dropController);
+
+			// Drag handling
+			dragSource.connect("prepare", (_source, x, y) => {
+				dragX = x;
+				dragY = y;
+
+				const value = new GObject.Value();
+				value.init(Gtk.ListBoxRow.$gtype);
+				value.set_object(row);
+
+				return Gdk.ContentProvider.new_for_value(value);
+			});
+
+			dragSource.connect("drag-begin", (_source, drag) => {
+				const dragWidget = new Gtk.ListBox();
+
+				dragWidget.set_size_request(row.get_width(), row.get_height());
+				dragWidget.add_css_class("boxed-list");
+
+				const dragRow = new Adw.ActionRow({ title: row.title });
+				dragRow.add_prefix(
+					new Gtk.Image({
+						iconName: "list-drag-handle-symbolic",
+						cssClasses: ["dim-label"],
+					}),
+				);
+
+				dragWidget.append(dragRow);
+				dragWidget.drag_highlight_row(dragRow);
+
+				const icon = Gtk.DragIcon.get_for_drag(drag);
+				// @ts-expect-error
+				icon.child = dragWidget;
+
+				drag.set_hotspot(dragX, dragY);
+			});
+
+			// Update row visuals during DnD operation
+			dropController.connect("enter", () => {
+				addonList.drag_highlight_row(row);
+			});
+
+			dropController.connect("leave", () => {
+				addonList.drag_unhighlight_row();
+			});
+
+			addonList.append(row);
+		});
+	});
 
 	const matcherList = builder.get_object("matcher_list", Gtk.ListBox);
 
@@ -510,6 +1110,7 @@ const createWindow = () => {
 
 			const button = new Gtk.Button({
 				actionName: "win.show-matcher",
+				actionTarget: GLib.Variant.new_string(x.name),
 			});
 
 			const row = new Adw.ActionRow({
@@ -523,140 +1124,164 @@ const createWindow = () => {
 		});
 	});
 
-	(() => {
-		const actions = new Gio.SimpleActionGroup();
+	const workspaceActions = new Gio.SimpleActionGroup();
 
-		const add = new Gio.SimpleAction({
-			name: "add",
-		});
+	const add = new Gio.SimpleAction({
+		name: "add",
+	});
 
-		add.connect("activate", () => {
-			folderStack.set_visible_child_name("pre-folder");
-		});
+	add.connect("activate", () => {
+		folderStack.set_visible_child_name("pre-folder");
+	});
 
-		actions.add_action(add);
+	workspaceActions.add_action(add);
 
-		const restore = new Gio.SimpleAction({
-			name: "restore",
-		});
+	const restore = new Gio.SimpleAction({
+		name: "restore",
+	});
 
-		restore.connect("activate", () => {
-			const path = _recentWorkspaces[0];
-			if (path === undefined) throw new Error;
-			const file = Gio.File.new_for_path(makeCanonicalPath(path));
-			updateWorkspace(file);
-		});
+	restore.connect("activate", () => {
+		const path = _recentWorkspaces[0];
+		if (path === undefined) throw new Error;
+		const file = Gio.File.new_for_path(makeCanonicalPath(path));
+		updateWorkspace(file);
+	});
 
-		actions.add_action(restore);
+	workspaceActions.add_action(restore);
 
-		const exportList = new Gio.SimpleAction({
-			name: "export",
-		});
+	const reload = new Gio.SimpleAction({
+		name: "reload",
+	});
 
-		exportList.connect("activate", () => {
-			if (_workspace === undefined) {
-				console.debug("Could not export when there is no workspace");
-				return;
-			}
-			exportAsList(_workspace).catch(logError);
-		});
+	reload.connect("activate", () => {
+		if (_workspace === undefined) {
+			console.warn("Cannot reload when there is no workspace");
+			return;
+		}
+		updateWorkspace(_workspace.root);
+	});
 
-		actions.add_action(exportList);
+	workspaceActions.add_action(reload);
 
-		const switchTo = new Gio.SimpleAction({
-			name: "switchTo",
-			parameterType: GLib.VariantType.new("s"),
-			state: GLib.Variant.new_string(""),
-		});
+	const exportList = new Gio.SimpleAction({
+		name: "export",
+	});
 
-		switchTo.connect("activate", (_action, parameter) => {
-			if (parameter === null) throw new Error;
-			const [path] = parameter.get_string();
-			if (path === null) throw new Error;
-			const file = Gio.File.new_for_path(path);
-			updateWorkspace(file, false);
-		});
+	exportList.connect("activate", () => {
+		if (_workspace === undefined) {
+			console.debug("Could not export when there is no workspace");
+			return;
+		}
+		exportAsList(_workspace).catch(logError);
+	});
 
-		events.connect("workspaceChanged", () => {
-			switchTo.change_state(GLib.Variant.new_string(_workspace?.root?.get_basename() || ""));
-		});
+	workspaceActions.add_action(exportList);
 
-		switchTo.connect("change-state", (action, value) => {
-			if (value === null) throw new Error;
-			action.set_state(value);
-		});
+	const switchTo = new Gio.SimpleAction({
+		name: "switchTo",
+		parameterType: GLib.VariantType.new("s"),
+		state: GLib.Variant.new_string(""),
+	});
 
-		actions.add_action(switchTo);
+	switchTo.connect("activate", (_action, parameter) => {
+		if (parameter === null) throw new Error;
+		const [path] = parameter.get_string();
+		if (path === null) throw new Error;
+		const file = Gio.File.new_for_path(path);
+		updateWorkspace(file);
+	});
 
-		window.insert_action_group("workspace", actions);
+	events.connect("workspaceChanged", () => {
+		switchTo.change_state(GLib.Variant.new_string(_workspace?.root?.get_basename() || ""));
+	});
 
-		application.set_accels_for_action("workspace.add", ["<Primary>O"]);
-	})();
+	switchTo.connect("change-state", (action, value) => {
+		if (value === null) throw new Error;
+		action.set_state(value);
+	});
 
-	(() => {
-		const actions = new Gio.SimpleActionGroup();
+	workspaceActions.add_action(switchTo);
 
-		let nextReveal = false;
+	const showDetails = new Gio.SimpleAction({
+		name: "show-details",
+		parameterType: GLib.VariantType.new("s"),
+	});
 
-		const headerbox_reveal = new Gio.SimpleAction({
-			name: "reveal",
-		});
+	showDetails.connect("activate", (_action, parameter) => {
+		if (parameter === null) throw new Error;
+		const [val] = parameter.get_string();
+		addonDetailsWindow.title_widget.set_title(val);
+		addonDetailsWindow.present();
+	});
 
-		headerbox_reveal.connect("activate", (_action) => {
-			nextReveal = !nextReveal;
-			if (nextReveal) {
-				revealHeaderbox();
-			} else {
-				unrevealHeaderbox();
-			}
-		});
+	workspaceActions.add_action(showDetails);
 
-		actions.add_action(headerbox_reveal);
+	window.insert_action_group("workspace", workspaceActions);
 
-		const headerbox_box_switch = new Gio.SimpleAction({
-			name: "box-switch",
-			parameterType: GLib.VariantType.new("s"),
-		});
+	application.set_accels_for_action("workspace.add", ["<Primary>O"]);
 
-		headerbox_box_switch.connect("activate", syncCreate((_action, parameter) => {
-			if (!parameter) throw new Error;
-			const boxName = parameter.deepUnpack();
-			if (typeof boxName !== "string") throw new Error;
-			headerbox.setCurrentPage(boxName);
-		}, null, GLib.Variant.new_string("status_box")));
+	const headerboxActions = new Gio.SimpleActionGroup();
 
-		actions.add_action(headerbox_box_switch);
+	let nextReveal = false;
 
-		window.insert_action_group("headerbox", actions);
-	})();
+	const headerbox_reveal = new Gio.SimpleAction({
+		name: "reveal",
+	});
 
-	(() => {
-		const actions = new Gio.SimpleActionGroup();
+	headerbox_reveal.connect("activate", (_action) => {
+		nextReveal = !nextReveal;
+		if (nextReveal) {
+			revealHeaderbox();
+		} else {
+			unrevealHeaderbox();
+		}
+	});
 
-		const inject = new Gio.SimpleAction({
-			name: "inject",
-		});
+	headerboxActions.add_action(headerbox_reveal);
 
-		inject.connect("activate", () => {
-			if (_workspace === undefined) {
-				console.debug("Could not inject when there is no workspace");
-				return;
-			}
+	const headerbox_box_switch = new Gio.SimpleAction({
+		name: "box-switch",
+		parameterType: GLib.VariantType.new("s"),
+	});
 
-			const cancellable = new Gio.Cancellable;
+	headerbox_box_switch.connect("activate", syncCreate((_action, parameter) => {
+		if (!parameter) throw new Error;
+		const boxName = parameter.deepUnpack();
+		if (typeof boxName !== "string") throw new Error;
+		headerbox.setCurrentPage(boxName);
+	}, null, GLib.Variant.new_string("status_box")));
 
-			(async () => {
-				await cleanup(cancellable);
-				const { root, entries } = _workspace;
-				const archives = filter(entries);
-				await link(root, archives, cancellable);
-			})().catch(logError);
-		});
+	headerboxActions.add_action(headerbox_box_switch);
 
-		actions.add_action(inject);
+	window.insert_action_group("headerbox", headerboxActions);
 
-		window.insert_action_group("inject", actions);
-	})();
+	const injectActions = new Gio.SimpleActionGroup();
+
+	const inject = new Gio.SimpleAction({
+		name: "inject",
+	});
+
+	inject.connect("activate", () => {
+		if (_workspace === undefined) {
+			console.debug("Could not inject when there is no workspace");
+			return;
+		}
+
+		const cancellable = new Gio.Cancellable;
+
+		(async () => {
+			await cleanup(cancellable);
+			const { root, entries, shuffleChoices: previousShuffleChoices, requestSaveShuffleChoices } = _workspace;
+			const { files: archives, shuffleChoices } = filter(entries, previousShuffleChoices);
+			requestSaveShuffleChoices(shuffleChoices);
+			await link(root, archives, cancellable);
+			profileBar.toast("LJWsdf");
+		})().catch(logError);
+	});
+
+	injectActions.add_action(inject);
+
+	window.insert_action_group("inject", injectActions);
 
 	/**
 	 * @type {ReturnType<typeof createMatcherWindow>?}
@@ -692,33 +1317,12 @@ const createWindow = () => {
 	window.add_action(showMatcher);
 
 	addError({
-		short: _("Disconnected"),
-		msg: _("Could not connect to daemon. Make sure that you\'ve installed Add-on Box."),
+		short: _("Work-in-progress"),
+		msg: _("This application is in heavy development. All feedbacks are welcomed!"),
 	});
 
 	return window;
 };
-
-(() => {
-	/**
-	 * @type {Gtk.ApplicationWindow?}
-	 */
-	let window = null;
-
-	application.connect("activate", () => {
-		if (window === null) {
-			const newWindow = createWindow();
-
-			newWindow.connect("close-request", () => {
-				window = null;
-				return false;
-			});
-
-			window = newWindow;
-		}
-		window.present();
-	});
-})();
 
 const createPreferences = () => {
 	const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(Preferences.substr(11)));
@@ -780,32 +1384,49 @@ function createMatcherWindow() {
 	});
 };
 
-(() => {
-	/**
-	 * @type {Adw.PreferencesWindow?}
-	 */
-	let window = null;
+/**
+ * @type {Adw.PreferencesWindow?}
+ */
+let preferencesWindow = null;
 
-	const showPreferences = new Gio.SimpleAction({
-		name: "show-preferences",
-	});
+const showPreferences = new Gio.SimpleAction({
+	name: "show-preferences",
+});
 
-	showPreferences.connect("activate", () => {
-		if (window === null) {
-			const newWindow = createPreferences();
+showPreferences.connect("activate", () => {
+	if (preferencesWindow === null) {
+		const newWindow = createPreferences();
 
-			newWindow.connect("close-request", () => {
-				window = null;
-				return false;
-			});
+		newWindow.connect("close-request", () => {
+			preferencesWindow = null;
+			return false;
+		});
 
-			window = newWindow;
-		}
-		window.present();
-	});
+		preferencesWindow = newWindow;
+	}
+	preferencesWindow.present();
+});
 
-	application.add_action(showPreferences);
-})();
+application.add_action(showPreferences);
+
+/**
+ * @type {Gtk.ApplicationWindow?}
+ */
+let window = null;
+
+application.connect("activate", () => {
+	if (window === null) {
+		const newWindow = createWindow();
+
+		newWindow.connect("close-request", () => {
+			window = null;
+			return false;
+		});
+
+		window = newWindow;
+	}
+	window.present();
+});
 
 export {
 	settings,

@@ -183,6 +183,11 @@ scrolledwindow.noscrollbar scrollbar {
 	padding: 0px 12px;
 }
 
+.compact-button .toggle {
+	padding-top: 0px;
+	padding-bottom: 0px;
+}
+
 #roboken #headerbox .count {
 	font-weight: normal;
 }
@@ -318,7 +323,8 @@ badge {
  * Other
  */
 
-.thin-button {
+.thin-button,
+.thin-button .toggle {
 	padding-bottom: 0;
 	padding-top: 0;
 	font-weight: bold;
@@ -362,4 +368,28 @@ label.terminal {
   color: @green_2;
 }
 
+button.tag {
+  border-radius: 99999px;
+  padding: 4px 12px;
+  font-size: 20px;
+  font-weight: bold;
+}
 
+#headerbar-title,
+#headerbar-title-drag-revealer {
+	border-radius: 8px;
+}
+
+.drag-overlay-status-page {
+  background-color: alpha(@accent_bg_color, 0.5);
+  color: @accent_fg_color;
+  padding: 32px;
+}
+
+.blurred {
+  filter: blur(6px);
+}
+
+label.text-sm {
+	font-size: 0.7em;
+}
