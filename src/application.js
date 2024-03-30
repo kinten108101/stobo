@@ -14,7 +14,7 @@ import AddonDetails from "./addonDetails.blp" with { type: "uri" };
 import Preferences from "./preferences.blp" with { type: "uri" };
 import Matcher from "./matcher.blp" with { type: "uri" };
 import HeaderBox, { bindStatusToHeaderboxSection } from "./legacy/headerbox.js";
-import { defaultDecoder, isDirAsync, listFileAsync, makeDirNonstrictAsync, readJsonAsync, replaceJsonAsync } from "./lib/fileIO.js";
+import { defaultDecoder, defaultEncoder, isDirAsync, listFileAsync, makeDirNonstrictAsync, readJsonAsync, replaceJsonAsync } from "./lib/fileIO.js";
 import TOML from "./lib/fast-toml.js";
 import useFile from "./lib/file.js";
 import ExtendedBuilder from "./lib/builder.js";
@@ -125,8 +125,9 @@ const link = async (root, archives, cancellable) => {
 	const preGameDir = settings.get_string("game-dir");
 	const gameDir = Gio.File.new_for_path(makeCanonicalPath(preGameDir));
 	const destDir = getDestinationDir(gameDir);
-	for (const index in archives) {
-		const x = archives[index];
+	let index = 0;
+	for (const _index in archives) {
+		const x = archives[_index];
 		if (x === undefined) continue;
 		if (await isDirAsync(x)) {
 			const subarchives = (await listFileAsync(x)).filter(x => {
@@ -137,7 +138,7 @@ const link = async (root, archives, cancellable) => {
 			for (const subindex in subarchives) {
 				const y = subarchives[subindex];
 				if (y === undefined) continue;
-				const dest = destDir.get_child(`${index}-${subindex}@stvpk.vpk`);
+				const dest = destDir.get_child(`${index++}@stvpk.vpk`);
 				const symlinkValue = y.get_path();
 				if (symlinkValue === null) {
 					console.warn("source-path-missing");
@@ -151,7 +152,7 @@ const link = async (root, archives, cancellable) => {
 				}
 			}
 		} else {
-			const dest = destDir.get_child(`${index}@stvpk.vpk`);
+			const dest = destDir.get_child(`${index++}@stvpk.vpk`);
 			const symlinkValue = x.get_path();
 			if (symlinkValue === null) {
 				console.warn("source-path-missing");
@@ -222,6 +223,7 @@ const filter = (entries, previousShuffleChoices) => {
 	for (const x of shuffleGroups) {
 		const [groupName, preShuffleFiles] = x;
 		const shuffleFiles = (() => {
+			if (preShuffleFiles.length <= 1) return preShuffleFiles;
 			const previousChoice = previousShuffleChoices.get(groupName);
 			if (previousChoice === undefined) return preShuffleFiles;
 			const foundIdx = preShuffleFiles.map(x => x.get_basename()).indexOf(previousChoice);
@@ -625,7 +627,6 @@ const createWindow = () => {
 					 * @type {{ [key: string]: string }}
 					 */
 					const obj = {};
-					console.log(newVal instanceof Map);
 					newVal.forEach((val, key) => {
 						obj[key] = val;
 					});
@@ -876,23 +877,7 @@ const createWindow = () => {
 		headerbarTitle.remove_css_class("blurred");
 	});
 
-	builder.add_from_resource(AddonDetails.substr(11));
-
-	const addonDetailsWindow = Stobo.Object.assign(
-		builder.get_object("addon_details_window", Adw.Window),
-		(target) => ({
-			title_widget: (() => {
-				const content = target.get_content();
-				if (!(content instanceof Gtk.Box)) throw new Error;
-				const headerbar = content.get_first_child();
-				if (!(headerbar instanceof Adw.HeaderBar)) throw new Error;
-				const title = headerbar.get_title_widget();
-				if (!(title instanceof Adw.WindowTitle)) throw new Error;
-				return title;
-			})(),
-		})
-	);
-	addonDetailsWindow.set_transient_for(window);
+	const popover = new Gtk.PopoverMenu;
 
 	events.connect("workspaceChanged", () => {
 		if (_workspace === undefined) {
@@ -928,10 +913,7 @@ const createWindow = () => {
 				y => {
 					// FIXME(kinten): This will fix a bug where entire view is scrolled to top/bottom on dropping. But now user cannot focus on each row, hurts accessibility.
 					addonList.set_can_focus(true);
-					const popover = new Gtk.PopoverMenu;
-					popover.set_parent(y);
-					popover.set_offset(0, -(y.get_height() / 4));
-					popover.set_menu_model((() => {
+					const menu = (() => {
 						const menu = new Gio.Menu;
 
 						menu.append_submenu(_("Move to Index..."), (() => {
@@ -951,7 +933,13 @@ const createWindow = () => {
 						menu.append_item(more);
 
 						return menu;
-					})());
+					})();
+					popover.set_menu_model(menu);
+					// NOTE(kinten): Previously a popover is created per activation, and it unparents based on the notify::visible signal (when false value). But that approach conflicted with the GAction system because (ASSUMPTION) the current element cannot traverse up ancestor tree to find action provider if it unparents before traversal.
+					popover.unparent();
+					popover.set_parent(y);
+					popover.set_offset(0, -(y.get_height() / 4));
+					popover.set_menu_model(menu);
 
 					const container = new Adw.Clamp;
 					container.set_maximum_size(120);
@@ -997,6 +985,7 @@ const createWindow = () => {
 						return box;
 					})());
 
+					// NOTE(kinten): add child to popover menu AFTER adding placeholder gmenu item
 					popover.add_child(container, "move-to-index-widget");
 
 					popover.set_visible(true);
@@ -1124,7 +1113,30 @@ const createWindow = () => {
 		});
 	});
 
+	(/** @type {Gtk.Window} */ (window)).connect("close-request", () => {
+		popover.unparent();
+	});
+
 	const workspaceActions = new Gio.SimpleActionGroup();
+
+	const explore = new Gio.SimpleAction({
+		name: "explore",
+	});
+
+	explore.connect("activate", () => {
+		if (_workspace === undefined) {
+			console.warn("Cannot explore the root workspace folder when there is no workspace");
+			return;
+		}
+		const { root } = _workspace;
+
+		const launcher = Gtk.FileLauncher.new(root);
+		(async () => {
+			await launcher.launch(window, null);
+		})().catch(logError);
+	});
+
+	workspaceActions.add_action(explore);
 
 	const add = new Gio.SimpleAction({
 		name: "add",
@@ -1209,8 +1221,76 @@ const createWindow = () => {
 
 	showDetails.connect("activate", (_action, parameter) => {
 		if (parameter === null) throw new Error;
+		if (_workspace === undefined) {
+			console.warn("Cannot show details of an archive when there is no workspace that contains it");
+			return;
+		}
 		const [val] = parameter.get_string();
-		addonDetailsWindow.title_widget.set_title(val);
+		const entry = _workspace.entries.find(x => {
+			return x.name === val;
+		});
+		if (entry === undefined) {
+			console.warn("Cannot show detials of an archive that does not exist");
+			return;
+		}
+		const { root } = _workspace;
+		const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(AddonDetails.substr(11)));
+		const addonDetailsWindow = Stobo.Object.assign(
+			builder.get_object("addon_details_window", Adw.Window),
+			(target) => ({
+				title_widget: (() => {
+					const content = target.get_content();
+					if (!(content instanceof Gtk.Box)) throw new Error;
+					const headerbar = content.get_first_child();
+					if (!(headerbar instanceof Adw.HeaderBar)) throw new Error;
+					const title = headerbar.get_title_widget();
+					if (!(title instanceof Adw.WindowTitle)) throw new Error;
+					return title;
+				})(),
+			})
+		);
+		useFile(addonDetailsWindow, builder, window);
+		addonDetailsWindow.set_transient_for(window);
+		addonDetailsWindow.title_widget.set_title(entry.name);
+
+		const launchButton = builder.get_object("launch-button", Gtk.Button);
+		launchButton.connect_after("clicked", () => {
+			addonDetailsWindow.close();
+		});
+
+		const createButton = builder.get_object("create_button", Gtk.Button);
+
+		const manifestButtonStack = builder.get_object("manifest_button_stack", Gtk.Stack);
+
+		let useCreateButtonClicked = NaN;
+		const manifest = root.get_child(`${entry.name}.toml`);
+		const cancellable = new Gio.Cancellable;
+		const monitor = manifest.monitor_file(Gio.FileMonitorFlags.NONE, cancellable);
+		const useMonitorManifest = monitor.connect("changed", syncCreate((_, file, ___, ____) => {
+			if (file.query_exists(cancellable)) {
+				const path = manifest.get_path();
+				if (path === null) return;
+				launchButton.set_action_target_value(GLib.Variant.new_tuple([GLib.Variant.new_string(path)]));
+				manifestButtonStack.set_visible_child_name("launch");
+			} else {
+				if (!isNaN(useCreateButtonClicked)) createButton.disconnect(useCreateButtonClicked);
+				useCreateButtonClicked = createButton.connect("clicked", () => {
+					(async () => {
+						await manifest.replace_contents_async(defaultEncoder.encode(""), null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+					})().catch(logError);
+				});
+
+				manifestButtonStack.set_visible_child_name("create");
+			}
+		}, null, manifest));
+
+		(() => {
+		})();
+		const useWindowCloseRequest = (/** @type {Gtk.Window} */(addonDetailsWindow)).connect("close-request", (obj) => {
+			cancellable.cancel();
+			obj.disconnect(useWindowCloseRequest);
+			monitor.disconnect(useMonitorManifest);
+		});
 		addonDetailsWindow.present();
 	});
 
@@ -1408,6 +1488,37 @@ showPreferences.connect("activate", () => {
 });
 
 application.add_action(showPreferences);
+
+const bookmark = new Gio.SimpleAction({
+	name: "bookmark",
+	parameterType: GLib.VariantType.new("s"),
+});
+
+bookmark.connect("activate", (_action, parameter) => {
+	if (parameter === null) throw new Error;
+	const [val] = parameter.get_string();
+	switch (val) {
+	case "boki":
+		// @ts-expect-error
+		Gio.DBus.session.call(
+			"com.github.kinten108101.Boki",
+			"/com/github/kinten108101/Boki",
+			"org.freedesktop.Application",
+			"Activate",
+			GLib.Variant.new_tuple([GLib.Variant.new_array(GLib.VariantType.new_dict_entry(GLib.VariantType.new("s"), GLib.VariantType.new("v")), [])]),
+			null,
+			Gio.DBusCallFlags.NONE,
+			9000,
+			null
+		// @ts-expect-error
+		).catch(logError);
+		break;
+	default:
+		throw new Error(`Received \"${val}\"`);
+	}
+});
+
+application.add_action(bookmark);
 
 /**
  * @type {Gtk.ApplicationWindow?}

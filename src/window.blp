@@ -30,13 +30,22 @@ menu profile_switch_menu {
 }
 
 menu primary_menu {
-
 	section {
+		item (_("Open Folder"), "workspace.explore")
 		item (_("Export..."), "workspace.export")
+		submenu {
+			label: _("Bookmarks");
+
+			item {
+				label: _("Boki");
+				action: "app.bookmark";
+				target: "boki";
+			}
+		}
+		item (_("Preferences"), "app.show-preferences")
 	}
 
 	section {
-		item (_("Preference"), "app.show-preferences")
 		item (_("Keyboard Shortcuts"), "win.show-help-overlay")
 		item (_("About Stobo"), "win.show-about")
 	}
@@ -230,7 +239,8 @@ Adw.ApplicationWindow window {
 																								name: "profile-bar";
 																								vexpand: false;
 																								orientation: vertical;
-																								maximum-size: 16;
+																								maximum-size: 100;
+																								tightening-threshold: 0;
 
 																								Box {
 																									orientation: vertical;
@@ -942,7 +952,8 @@ Adw.ApplicationWindow window {
 																						spacing: 24;
 
 																						Adw.PreferencesGroup {
-																							title: _("Installed");
+																							title: _("All Archives");
+																							header-suffix: Gtk.Button {};
 
 																							Gtk.ListBox addon_list {
 																								selection-mode: none;

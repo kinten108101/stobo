@@ -16,6 +16,8 @@ Gio._promisify(Gtk.FileDialog.prototype, 'save', 'save_finish');
 Gio._promisify(Gtk.FileDialog.prototype, 'select_folder', 'select_folder_finish');
 // FIXME(kinten): Why is this not working
 Gio._promisify(Gtk.FileLauncher.prototype, 'open_containing_folder', 'open_containing_folder_finish');
+Gio._promisify(Gtk.FileLauncher.prototype, 'launch', 'launch_finish');
+Gio._promisify(Gio.DBus.session, 'call', 'call_finish');
 
 /* Gio.Subprocess */
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_async');

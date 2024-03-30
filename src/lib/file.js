@@ -42,7 +42,7 @@ const useFile = (widget, builder, parent_window) => {
 
 	const explore = new Gio.SimpleAction({
 		name: 'explore',
-		parameter_type: GLib.VariantType.new_tuple([GLib.VariantType.new('s')]),
+		parameterType: GLib.VariantType.new_tuple([GLib.VariantType.new('s')]),
 	});
 
 	explore.connect('activate', (_action, parameter) => {
@@ -52,14 +52,35 @@ const useFile = (widget, builder, parent_window) => {
 			throw new Error;
 
 		const launcher = Gtk.FileLauncher.new(Gio.File.new_for_uri(`file://${values[0]}`));
-		launcher.open_containing_folder(TRANSIENT ? (parent_window || null) : null, null);
+		(async () => {
+			await launcher.open_containing_folder(TRANSIENT ? (parent_window || null) : null, null);
+		})().catch(logError);
 	});
 
 	action_group.add_action(explore);
 
+	const launch = new Gio.SimpleAction({
+		name: 'launch',
+		parameterType: GLib.VariantType.new_tuple([GLib.VariantType.new('s')]),
+	});
+
+	launch.connect('activate', (_action, parameter) => {
+		if (!parameter) throw new Error;
+		const values = parameter.recursiveUnpack();
+		if (!Array.isArray(values))
+			throw new Error;
+
+		const launcher = Gtk.FileLauncher.new(Gio.File.new_for_uri(`file://${values[0]}`));
+		(async () => {
+			await launcher.launch(TRANSIENT ? (parent_window || null) : null, null);
+		})().catch(logError);
+	});
+
+	action_group.add_action(launch);
+
 	const save_file = new Gio.SimpleAction({
 		name: 'save-file',
-		parameter_type: GLib.VariantType.new_tuple([GLib.VariantType.new('s'), GLib.VariantType.new('s')]),
+		parameterType: GLib.VariantType.new_tuple([GLib.VariantType.new('s'), GLib.VariantType.new('s')]),
 	});
 
 	save_file.connect('activate', (_action, parameter) => {
@@ -93,7 +114,7 @@ const useFile = (widget, builder, parent_window) => {
 
 	const pick_dir = new Gio.SimpleAction({
 		name: 'select-folder',
-		parameter_type: GLib.VariantType.new_tuple([GLib.VariantType.new('s'), GLib.VariantType.new('s')]),
+		parameterType: GLib.VariantType.new_tuple([GLib.VariantType.new('s'), GLib.VariantType.new('s')]),
 	});
 
 	pick_dir.connect('activate', (_action, parameter) => {
@@ -127,7 +148,7 @@ const useFile = (widget, builder, parent_window) => {
 
   	const set_dir = new Gio.SimpleAction({
   		name: 'set',
-  		parameter_type: GLib.VariantType.new_tuple([GLib.VariantType.new('s'), GLib.VariantType.new('s')]),
+  		parameterType: GLib.VariantType.new_tuple([GLib.VariantType.new('s'), GLib.VariantType.new('s')]),
   	});
 
   	set_dir.connect('activate', (_action, parameter) => {

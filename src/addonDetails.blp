@@ -3,7 +3,6 @@ using Adw 1;
 
 Adw.Window addon_details_window {
 	default-width: 400;
-	hide-on-close: true;
 	modal: true;
 	resizable: false;
 
@@ -21,31 +20,63 @@ Adw.Window addon_details_window {
 					column-spacing: 6;
 					column-homogeneous: true;
 
-					Gtk.Button {
-						hexpand: true;
+					Gtk.Stack manifest_button_stack {
 						layout {
 							row: 0;
 							column: 0;
 						}
 
-						Gtk.Box {
-							margin-top: 4;
-							margin-bottom: 4;
-							orientation: vertical;
+						Gtk.StackPage {
+							name: "launch";
+							child:
+								Gtk.Button launch-button {
+									action-name: "file.launch";
+									action-target: "\"\""; // placeholder, real action-target provided by program
+									hexpand: true;
 
-							Gtk.Image {
-								icon-name: "document-open-symbolic";
-							}
+									Gtk.Box {
+										margin-top: 4;
+										margin-bottom: 4;
+										orientation: vertical;
 
-							Gtk.Label {
-								label: _("Show in Folder");
-								wrap: true;
-								wrap-mode: word_char;
-								justify: center;
-								styles ["text-sm"]
-							}
+										Gtk.Image {
+											icon-name: "folder-documents-symbolic";
+										}
+
+										Gtk.Label {
+											label: _("Open Manifest");
+											wrap: true;
+											wrap-mode: word_char;
+											justify: center;
+											styles ["text-sm"]
+										}
+									}
+								};
+						}
+
+						Gtk.StackPage {
+							name: "create";
+							child:
+								Gtk.Button create_button {
+									hexpand: true;
+
+									Gtk.Box {
+										margin-top: 4;
+										margin-bottom: 4;
+										orientation: vertical;
+
+										Gtk.Label {
+											label: _("(Click to create manifest)");
+											wrap: true;
+											wrap-mode: word_char;
+											justify: center;
+											styles ["text-sm"]
+										}
+									}
+								};
 						}
 					}
+
 
 					Gtk.Button {
 						hexpand: true;
