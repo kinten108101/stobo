@@ -137,9 +137,9 @@ export const bind_property_full = (src, srcProp, target, targetProp, flags, tran
 };
 
 /**
- * @param {{ connect: ConnectMethod; disconnect: DisconnectMethod }} src
+ * @param {Connectable} src
  * @param {string} srcProp
- * @param {{ connect: ConnectMethod; disconnect: DisconnectMethod }} target
+ * @param {Connectable} target
  * @param {string} targetProp
  * @param {GObject.BindingFlags} flags
  */

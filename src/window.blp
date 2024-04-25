@@ -66,42 +66,10 @@ PopoverMenu popover_menu {
 }
 
 Adw.ApplicationWindow window {
-	default-width: 740;
-	default-height: 468;
+	default-width: 448;
+	default-height: 660;
 	width-request: 16;
 	height-request: 16;
-
-	Adw.Breakpoint {
-		condition ("(max-width: 700px or max-height: 400px) and max-aspect-ratio: 1/1")
-
-		setters {
-			screen_size_viewstack.visible-child-name: "stobo";
-		}
-	}
-
-	Adw.Breakpoint {
-		condition ("(max-width: 700px or max-height: 400px) and min-aspect-ratio: 1/1")
-
-		setters {
-			screen_size_viewstack.visible-child-name: "ipod";
-		}
-	}
-
-	Adw.Breakpoint {
-		condition ("(min-width: 900px or min-height: 540px) and max-aspect-ratio: 1/1")
-
-		setters {
-			screen_size_viewstack.visible-child-name: "stobo";
-		}
-	}
-
-	Adw.Breakpoint {
-		condition ("(min-width: 900px or min-height: 540px) and min-aspect-ratio: 1/1")
-
-		setters {
-			screen_size_viewstack.visible-child-name: "tv";
-		}
-	}
 
 	content: Adw.ToastOverlay primary_toast_overlay {
 		vexpand: true;
@@ -151,6 +119,152 @@ Adw.ApplicationWindow window {
 				child:
 					Stack screen_size_viewstack {
 						transition-type: crossfade;
+
+						StackPage {
+							name: "stobo";
+							child:
+								Gtk.Overlay {
+									child:
+										Gtk.Box {
+											styles ["bg-headerbar"]
+											orientation: vertical;
+
+											Box {
+												valign: fill;
+												vexpand: true;
+											}
+
+											Box {
+												name: "status-bar";
+												styles ["bg-headerbar"]
+												valign: end;
+												height-request: 36;
+
+												Box {
+													halign: start;
+												}
+
+												Box {
+													hexpand: true;
+												}
+
+												Box {
+													halign: end;
+
+													Gtk.Button {
+														action-name: "workspace.toggle-console";
+
+														Gtk.Box {
+															orientation: vertical;
+
+															Gtk.Box {
+																height-request: 12;
+															}
+
+															Gtk.Image {
+																icon-name: "dock-bottom-symbolic";
+															}
+														}
+													}
+												}
+											}
+										};
+
+									[overlay]
+									Box {
+										orientation: vertical;
+										margin-bottom: 28;
+
+										Box {
+											valign: fill;
+											vexpand: true;
+										}
+
+										Box bottom_console_box {
+											styles ["bg-view", "border-bottom-headerbar-shade", "rounded-[12px]"]
+											valign: end;
+											height-request: 12;
+										}
+									}
+
+									[overlay]
+									Box content_overlay {
+										name: "stobo";
+										orientation: vertical;
+										styles ["bg-window", "border-bottom-headerbar-shade", "rounded-[12px]"]
+										margin-bottom: 28;
+
+										Adw.HeaderBar {
+											// fake headerbar
+										}
+
+										Adw.ToastOverlay {
+											Gtk.ScrolledWindow {
+												hscrollbar-policy: never;
+												vscrollbar-policy: automatic;
+												hexpand: true;
+												vexpand: true;
+
+												Gtk.Box {
+													orientation: vertical;
+													vexpand: true;
+
+													ColumnView stobo_column_view {
+														styles ["py-[1px]", "bg-transparent"]
+														margin-bottom: 32;
+
+														ColumnViewColumn stobo_column_0 {
+															title: _("#");
+															fixed-width: 48;
+															factory: SignalListItemFactory {};
+														}
+
+														ColumnViewColumn stobo_column_2 {
+															title: _("Identification");
+															expand: true;
+															factory: SignalListItemFactory {};
+														}
+
+														ColumnViewColumn stobo_column_3 {
+															fixed-width: 48;
+															factory: SignalListItemFactory {};
+														}
+
+													}
+												}
+											}
+										}
+									}
+
+									[overlay]
+									Adw.HeaderBar {
+										valign: start;
+										show-title: false;
+										decoration-layout: "icons:minimize,close";
+
+										[start]
+										Button {
+											icon-name: "plus-large-symbolic";
+										}
+
+										[start]
+										$ProfileBar stobo_profile_bar {
+											has-arrow: true;
+										}
+
+										[start]
+										Adw.SplitButton {
+											visible: true;
+											styles ["thin-button"]
+											action-name: "inject.inject";
+											icon-name: "play-symbolic";
+											popover: PopoverMenu {
+												menu-model: primary_menu;
+											};
+										}
+									}
+								};
+						}
 
 						StackPage {
 							name: "base";
@@ -235,100 +349,7 @@ Adw.ApplicationWindow window {
 																						Box {
 																							spacing: 6;
 
-																							Adw.Clamp profile_bar {
-																								name: "profile-bar";
-																								vexpand: false;
-																								orientation: vertical;
-																								maximum-size: 100;
-																								tightening-threshold: 0;
-
-																								Box {
-																									orientation: vertical;
-
-																									Box {
-																										halign: fill;
-
-																										MenuButton profile_switch_button {
-																											vexpand: true;
-																											halign: start;
-																											hexpand: false;
-																											menu-model: profile_switch_menu;
-																											tooltip-text: _("Switch Profile");
-																											styles ["flat", "profile-button"]
-
-																											Box {
-																												halign: center;
-																												orientation: vertical;
-																												valign: center;
-
-																												Image {
-																													icon-name: "pan-up-symbolic";
-																													pixel-size: 12;
-																												}
-
-																												Image {
-																													icon-name: "pan-down-symbolic";
-																													pixel-size: 12;
-																												}
-																											}
-																										}
-
-																										Separator {}
-
-
-																										ToggleButton primary_button {
-																											vexpand: true;
-																											halign: fill;
-																											hexpand: true;
-																											styles ["flat", "profile-button"]
-																											action-name: "headerbox.reveal";
-
-																											Box {
-																												halign: fill;
-																												spacing: 4;
-
-																												ScrolledWindow {
-																													hscrollbar-policy: external;
-																													vscrollbar-policy: never;
-																													hexpand: true;
-
-																													Stack profile_label_stack {
-																														transition-type: slide_up_down;
-
-																														StackPage {
-																															name: "1";
-																															child:
-																																Label profile_label {
-																																	hexpand: true;
-																																	halign: fill;
-																																	xalign: 0;
-																																	label: "I\"m scared of drawing so I\"m programming instead!";
-
-																																	styles ["profile-name"]
-																																};
-																														}
-
-																														StackPage {
-																															name: "2";
-																															child:
-																																Label {
-																																	hexpand: true;
-																																	halign: fill;
-																																	xalign: 0;
-																																	label: "Completed!";
-
-																																	styles [
-																																		"profile-name"
-																																	]
-																																};
-																														}
-																													}
-																												}
-																											}
-																										}
-																									}
-																								}
-																							}
+																							$ProfileBar profile_bar {}
 
 																							Box inject_button {
 																								styles ["inject-button-3"]
@@ -897,10 +918,7 @@ Adw.ApplicationWindow window {
 
 																	icon-name: "open-menu-symbolic";
 																	primary: true;
-																	popover:
-																		PopoverMenu primary_menu_popover {
-																			menu-model: primary_menu;
-																		};
+																	menu-model: primary_menu;
 
 																	tooltip-text: _("Main Menu");
 																}
@@ -1056,154 +1074,6 @@ Adw.ApplicationWindow window {
 									//	name: "addons-panel-disk-page";
 									//	child: $StvpkAddonsPanelDisk addons_panel_disk {};
 									//}
-								};
-						}
-
-						StackPage {
-							name: "stobo";
-							child:
-								Box {
-									name: "stobo";
-									orientation: vertical;
-
-									Adw.HeaderBar {
-										show-title: false;
-
-										[start]
-										Button {
-											icon-name: "plus-large-symbolic";
-										}
-
-										[start]
-										Adw.Clamp {
-											vexpand: false;
-											name: "profile-bar";
-											maximum-size: 200;
-
-											Box {
-												orientation: vertical;
-
-												Box {
-													hexpand: true;
-													halign: fill;
-													width-request: 100;
-
-													Button {
-														vexpand: true;
-														halign: start;
-														hexpand: false;
-														tooltip-text: _("Switch Repository");
-
-														styles [
-															"flat",
-															"profile-button"
-														]
-
-														Box {
-															halign: center;
-															orientation: vertical;
-															valign: center;
-
-															Image {
-																icon-name: "pan-up-symbolic";
-																pixel-size: 12;
-															}
-
-															Image {
-																icon-name: "pan-down-symbolic";
-																pixel-size: 12;
-															}
-														}
-													}
-
-													Separator {}
-
-													ToggleButton {
-														vexpand: true;
-														halign: fill;
-														hexpand: true;
-														active: true;
-
-														styles [
-															"flat",
-															"profile-button"
-														]
-
-														Box {
-															halign: fill;
-															spacing: 6;
-
-															ScrolledWindow {
-																hscrollbar-policy: external;
-																vscrollbar-policy: never;
-																hexpand: true;
-
-																Stack {
-																	StackPage {
-																		name: "1";
-																		child:
-																			Label {
-																				hexpand: true;
-																				halign: fill;
-																				xalign: 0;
-																				label: "I\'m scared of drawing so I\"m programming instead!";
-
-																				styles [
-																					"profile-name"
-																				]
-																			};
-																	}
-
-																	StackPage {
-																		name: "2";
-																		child:
-																			Label {
-																				hexpand: true;
-																				halign: fill;
-																				xalign: 0;
-																				label: "Completed!";
-
-																				styles [
-																					"profile-name"
-																				]
-																			};
-																	}
-																}
-
-															}
-
-															Image {
-																icon-name: "pan-down-symbolic";
-															}
-														}
-													}
-												}
-											}
-										}
-
-										[start]
-										Adw.SplitButton {
-											icon-name: "play-large-symbolic";
-
-											styles [
-												"green"
-											]
-										}
-									}
-
-									Adw.ToastOverlay {
-										Adw.Clamp {
-											maximum-size: 300;
-
-											Adw.StatusPage {
-												vexpand: true;
-												title: _("Work in Progress");
-												description: _("Add-on list section is under construction");
-											}
-										}
-									}
-
-									Box {}
 								};
 						}
 

@@ -70,19 +70,26 @@ Gio._promisify(Soup.Session.prototype, 'send_and_read_async', 'send_and_read_fin
 Gio._promisify(Soup.Session.prototype, 'send_and_splice_async', 'send_and_splice_finish');
 Gio._promisify(Soup.Session.prototype, 'send_async', 'send_finish');
 Gio._promisify(Soup.Session.prototype, 'websocket_connect_async', 'websocket_connect_finish');
+Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async', 'communicate_utf8_finish');
 
 // register custom widgets
 import "./lib/iconWithBadge.js";
 import "./lib/themeselector.js";
 
+// register custom gobject classes
+import "./classes/index.js";
+
 // register icons
 import "./icons/addon-box.svg" with { type: "icon" };
+import "./icons/dock-bottom-symbolic.svg" with { type: "icon" };
 import "./icons/error-symbolic.svg" with { type: "icon" };
 import "./icons/flash-memory-symbolic.svg" with { type: "icon" };
 import "./icons/info-symbolic.svg" with { type: "icon" };
 import "./icons/key-symbolic.svg" with { type: "icon" };
+import "./icons/list-drag-handle-symbolic.svg" with { type: "icon" };
 import "./icons/move-tool-symbolic.svg" with { type: "icon" };
 import "./icons/play-symbolic.svg" with { type: "icon" };
+import "./icons/plus-large-symbolic.svg" with { type: "icon" };
 import "./icons/pip-in-symbolic.svg" with { type: "icon" };
 import "./icons/pip-out-symbolic.svg" with { type: "icon" };
 

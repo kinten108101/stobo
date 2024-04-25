@@ -540,6 +540,7 @@ const HeaderBox = (builder) => {
 
 /**
  * @param {ReturnType<typeof import("./headerbox").default>} headerbox
+ * @param {{ profileLabel: Connectable }} profileBar
  * @param {Gtk.Window} window
  */
 const bindStatusToHeaderboxSection = (headerbox, profileBar, window) => {

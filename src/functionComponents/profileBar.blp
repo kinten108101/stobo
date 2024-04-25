@@ -1,0 +1,110 @@
+using Gtk 4.0;
+using Adw 1;
+
+menu switch_menu {
+	item (_("Open Repository..."), "workspace.add")
+}
+
+Adw.Clamp bar {
+	name: "profile-bar";
+	vexpand: false;
+	orientation: horizontal;
+	maximum-size: 900;
+
+	Box {
+		orientation: vertical;
+
+		Box {
+			hexpand: true;
+			halign: fill;
+
+			MenuButton switch_button {
+				vexpand: true;
+				halign: start;
+				hexpand: false;
+				menu-model: switch_menu;
+				tooltip-text: _("Switch Profile");
+				styles ["flat", "profile-button"]
+
+				Box {
+					halign: center;
+					orientation: vertical;
+					valign: center;
+
+					Image {
+						icon-name: "pan-up-symbolic";
+						pixel-size: 12;
+					}
+
+					Image {
+						icon-name: "pan-down-symbolic";
+						pixel-size: 12;
+					}
+				}
+			}
+
+			Adw.Clamp {
+				orientation: vertical;
+				maximum-size: 16;
+
+				Separator {}
+			}
+
+
+			ToggleButton primary_button {
+				vexpand: true;
+				halign: fill;
+				hexpand: true;
+				styles ["flat", "profile-button"]
+				action-name: "headerbox.reveal";
+
+				Box {
+					halign: fill;
+					spacing: 4;
+
+					ScrolledWindow {
+						hscrollbar-policy: external;
+						vscrollbar-policy: never;
+						hexpand: true;
+
+						Stack label_stack {
+							transition-type: slide_up_down;
+
+							StackPage {
+								name: "1";
+								child:
+									Label label {
+										hexpand: true;
+										halign: fill;
+										xalign: 0;
+										label: "I\"m scared of drawing so I\"m programming instead!";
+
+										styles ["profile-name"]
+									};
+							}
+
+							StackPage {
+								name: "2";
+								child:
+									Label {
+										hexpand: true;
+										halign: fill;
+										xalign: 0;
+										label: "Completed!";
+
+										styles [
+											"profile-name"
+										]
+									};
+							}
+						}
+					}
+
+					Image arrow {
+						icon-name: "pan-down-symbolic";
+					}
+				}
+			}
+		}
+	}
+}

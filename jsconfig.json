@@ -14,7 +14,7 @@
 		"module": "ESNext",
 		"moduleResolution": "node",
 		"baseUrl": ".",
-		"strict": true,
+		"strict": false,
 		"noUnusedLocals": true,
 		"noUnusedParameters": true,
 		"noImplicitReturns": true,

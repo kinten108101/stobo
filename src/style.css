@@ -1,3 +1,5 @@
+@define-color headerbar_bg_color_legacy #EBEBEB;
+
 /**
  * Inject button/area
  */
@@ -18,26 +20,26 @@
  * Profile Bar
  */
 
-#roboken #profile-bar {
+#profile-bar {
 	padding: 0px;
 	min-height: 0px;
 	border-radius: 8px;
 	background: alpha(currentColor, 0.075);
 }
 
-#roboken #profile-bar button {
+#profile-bar button {
 	margin: 0px;
 	padding-top: 0px;
 	padding-bottom: 0px;
 }
 
-#roboken #profile-bar separator {
+#profile-bar separator {
 	transition-property: background;
 	transition-duration: 300ms;
 }
 
-#roboken #profile-bar:hover separator,
-#roboken #profile-bar.active separator {
+#profile-bar:hover separator,
+#profile-bar.active separator {
 	background: transparent;
 	transition-property: background;
 	transition-duration: 300ms;
@@ -47,7 +49,7 @@
  * Header Box
  */
 
-@define-color metalcard #EBEBEB;
+@define-color metalcard #d7d7d7;
 @define-color metalcard-dark #4a4a4a;
 
 #roboken #headerbox .headerbox-card {
@@ -365,7 +367,7 @@ label.terminal {
 }
 
 #stobo .green > button {
-  color: @green_2;
+  color: @green_3;
 }
 
 button.tag {
@@ -392,4 +394,62 @@ button.tag {
 
 label.text-sm {
 	font-size: 0.7em;
+}
+
+.text-bold {
+	font-weight: bold;
+}
+
+.text-medium {
+	font-weight: 600;
+}
+
+columnview.py-\[1px\] cell {
+	padding-bottom: 1px;
+	padding-top: 1px;
+}
+
+.bg-headerbar {
+	background-color: @headerbar_bg_color;
+}
+
+.bg-window {
+	background-color: @window_bg_color;
+}
+
+.bg-transparent {
+	background: transparent;
+}
+
+#status-bar button {
+	border-left: solid 1px @headerbar_shade_color;
+	border-radius: 0;
+	padding-top: 2px;
+	padding-bottom: 2px;
+	padding-left: 12px;
+	padding-right: 12px;
+}
+
+#status-bar button:not(:hover) {
+	background: transparent;
+}
+
+.border-bottom-headerbar-shade {
+	border-bottom: solid 1px @headerbar_shade_color;
+}
+
+.rounded-\[12px\] {
+	border-radius: 0px 0px 12px 12px;
+}
+
+.bg-view {
+	background-color: @view_bg_color;
+}
+
+.bg-view-with-shadow-bottom {
+	background: linear-gradient(180deg, @view_bg_color 95%, mix(@view_bg_color, @light_5, 0.1) 100%);
+}
+
+.bg-view-with-shadow-top {
+	background: linear-gradient(0deg, @view_bg_color 85%, mix(@view_bg_color, @light_5, 0.2) 100%);
 }

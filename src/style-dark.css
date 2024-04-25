@@ -1,3 +1,5 @@
+@define-color headerbar_bg_color_legacy #303030;
+
 /**
  * Inject button/area
  */
@@ -11,7 +13,7 @@
  */
 
 @define-color metalcard #4a4a4a;
-@define-color metalcard-dark #d8d8d8;
+@define-color metalcard-dark #000000;
 
 #headerbox .popped-view {
 	background-color: #000;
@@ -27,4 +29,16 @@
 
 #headerbox .status-box.red label.description {
 	color: mix(@red_1, @dark_1, 0.3);
+}
+
+#stobo .green > button {
+  color: @green_2;
+}
+
+.bg-view-with-shadow-bottom {
+	background: linear-gradient(180deg, @view_bg_color 95%, mix(@view_bg_color, @dark_5, 0.1) 100%);
+}
+
+.bg-view-with-shadow-top {
+	background: linear-gradient(0deg, @view_bg_color 85%, mix(@view_bg_color, @dark_5, 0.2) 100%);
 }

@@ -1,0 +1,135 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.Dialog window {
+	width-request: 300;
+	child: Box {
+		orientation: vertical;
+
+		Adw.HeaderBar {
+			title-widget: Adw.WindowTitle title {};
+			styles ["flat"]
+		}
+
+		Adw.PreferencesPage {
+			Adw.PreferencesGroup {
+				Gtk.Grid {
+					column-spacing: 6;
+					column-homogeneous: true;
+
+					Gtk.Stack manifest_button_stack {
+						layout {
+							row: 0;
+							column: 0;
+						}
+
+						Gtk.StackPage {
+							name: "launch";
+							child:
+								Gtk.Button launch-button {
+									action-name: "file.launch";
+									action-target: "\"\""; // placeholder, real action-target provided by program
+									hexpand: true;
+
+									Gtk.Box {
+										margin-top: 4;
+										margin-bottom: 4;
+										orientation: vertical;
+
+										Gtk.Image {
+											icon-name: "folder-documents-symbolic";
+										}
+
+										Gtk.Label {
+											label: _("Open Manifest");
+											wrap: true;
+											wrap-mode: word_char;
+											justify: center;
+											styles ["text-sm"]
+										}
+									}
+								};
+						}
+
+						Gtk.StackPage {
+							name: "create";
+							child:
+								Gtk.Button create_button {
+									hexpand: true;
+
+									Gtk.Box {
+										margin-top: 4;
+										margin-bottom: 4;
+										orientation: vertical;
+
+										Gtk.Label {
+											label: _("(Click to create manifest)");
+											wrap: true;
+											wrap-mode: word_char;
+											justify: center;
+											styles ["text-sm"]
+										}
+									}
+								};
+						}
+					}
+
+
+					Gtk.Button {
+						hexpand: true;
+						layout {
+							row: 0;
+							column: 1;
+						}
+
+						Gtk.Box {
+							margin-top: 4;
+							margin-bottom: 4;
+							orientation: vertical;
+
+							Gtk.Image {
+								icon-name: "move-tool-symbolic";
+							}
+
+							Gtk.Label {
+								label: "Move to Index...";
+								wrap: true;
+								wrap-mode: word_char;
+								justify: center;
+								styles ["text-sm"]
+							}
+						}
+					}
+
+					Gtk.Button show_archive_button {
+						hexpand: true;
+						layout {
+							row: 0;
+							column: 2;
+						}
+						action-name: "file.explore";
+						action-target: "(\"\")"; // placeholder, real action-target provided by program
+
+						Gtk.Box {
+							margin-top: 4;
+							margin-bottom: 4;
+							orientation: vertical;
+
+							Gtk.Image {
+								icon-name: "move-tool-symbolic";
+							}
+
+							Gtk.Label {
+								label: "Show in Folder";
+								wrap: true;
+								wrap-mode: word_char;
+								justify: center;
+								styles ["text-sm"]
+							}
+						}
+					}
+				}
+			}
+		}
+	};
+}

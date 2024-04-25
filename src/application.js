@@ -3,6 +3,9 @@ import GObject from "gi://GObject";
 import Gio from "gi://Gio";
 import Gdk from "gi://Gdk";
 import Gtk from "gi://Gtk";
+import Gsk from "gi://Gsk";
+import Graphene from "gi://Graphene";
+import Pango from "gi://Pango";
 import Adw from "gi://Adw";
 import { gettext as _ } from "gettext";
 
@@ -11,6 +14,7 @@ import { syncCreate } from "./lib/functional.js";
 import { addError } from "./services/status.js";
 import Window from "./window.blp" with { type: "uri" };
 import AddonDetails from "./addonDetails.blp" with { type: "uri" };
+import AddonControls from "./addonControls.blp" with { type: "uri" };
 import Preferences from "./preferences.blp" with { type: "uri" };
 import Matcher from "./matcher.blp" with { type: "uri" };
 import HeaderBox, { bindStatusToHeaderboxSection } from "./legacy/headerbox.js";
@@ -19,6 +23,9 @@ import TOML from "./lib/fast-toml.js";
 import useFile from "./lib/file.js";
 import ExtendedBuilder from "./lib/builder.js";
 import { addSignalMethods } from "./lib/signals.js";
+import { StoboColumnItem } from "./classes/stoboColumn.js";
+import ProfileBar from "./classes/profileBar.js";
+import StoboProfile from "./functionComponents/stoboProfile.js";
 
 /**
  * @typedef {(signal: string, cb: (...args: any[]) => void) => number} ConnectMethod
@@ -60,6 +67,20 @@ var Stobo = {
 		},
 	}
 };
+
+/**
+ * @param {Gtk.Widget} widget
+ * @param {number} x
+ * @param {number} y
+ */
+function moveWidget(widget, x, y) {
+	let transform = new Gsk.Transform();
+	// @ts-expect-error stock code
+	const p = new Graphene.Point({ x: x, y: y });
+	// @ts-expect-error stock code
+	transform = transform.translate(p);
+	widget.allocate(widget.get_width(), widget.get_height(), -1, transform);
+}
 
 const application = new Adw.Application({
 	applicationId: pkg.name,
@@ -243,10 +264,76 @@ const filter = (entries, previousShuffleChoices) => {
 	return { files, shuffleChoices: /** @type {Readonly<typeof shuffleChoices>} */(shuffleChoices) };
 };
 
+const xattrNamespace = "user.stobo";
+
+/**
+ * @param {Gio.File} file
+ * @param {string} attr
+ */
+const getExtendedAttributeValueFromFile = async (file, attr) => {
+	const path = file.get_path();
+	if (path === null) return null;
+	const process = Gio.Subprocess.new([
+		"getfattr", "-n", attr, path
+	], Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+
+	const [stdout] = await process.communicate_utf8_async(null, null);
+
+	if (process.get_successful() && stdout !== null) {
+		const lines = stdout.split("\n");
+		if (lines.length !== 4) throw new Error;
+		const contentLine = lines[1];
+		if (contentLine === undefined) throw new Error;
+		const parts = contentLine.split("=");
+		if (parts.length !== 2) throw new Error;
+		let value = parts[1];
+		if (value === undefined) throw new Error;
+		if (value[0] === "\"") value = value.substring(1, value.length);
+		if (value[value.length - 1] === "\"") value = value.substring(0, value.length - 1);
+		return value;
+	} else {
+		return null;
+	}
+};
+
+/**
+ * @param {Gio.File} file
+ */
+const getExtendedAttributeDumpFromFile = async (file) => {
+	const buffer = /** @type {{[key: string]: string}} */({});
+	const path = file.get_path();
+	if (path === null) return buffer;
+	const process = Gio.Subprocess.new([
+		"getfattr", "-m", `^${xattrNamespace}.`, "-d", path
+	], Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+
+	const [stdout] = await process.communicate_utf8_async(null, null);
+
+	if (process.get_successful() && stdout !== null) {
+		const lines = stdout.split("\n").filter((_, i, arr) => i > 0 && i <= arr.length - 2);
+		for (const x of lines) {
+			const parts = x.split("=");
+			if (parts.length !== 2) continue;
+			let key = parts[0];
+			if (key === undefined) throw new Error;
+			key = key.substring(xattrNamespace.length + 1, key.length);
+			let value = parts[1];
+			if (value === undefined) throw new Error;
+			if (value[0] === "\"") value = value.substring(1, value.length);
+			if (value[value.length - 1] === "\"") value = value.substring(0, value.length - 1);
+			buffer[key] = value;
+		}
+	}
+	return buffer;
+};
+
 /**
  * @param {Gio.File} dir
+ * @param {{
+ * listFileAsync: (dir: Gio.File) => Promise<Gio.File[]>;
+ * }} params
  */
-const loadFolder = async (dir) => {
+const loadFolder = async (dir, { listFileAsync }) => {
 	const files = await listFileAsync(dir);
 
 	const manifests = files
@@ -286,39 +373,69 @@ const loadFolder = async (dir) => {
 					const lastSlash = archivePath.lastIndexOf("/");
 					const baseNameOfManifest = manifestPath.substring(lastSlash + 1, firstDotIdx);
 					return (baseName === baseNameOfManifest);
-				});
-				if (manifest === undefined) return null;
+				}) || null;
 				const value = await (async () => {
-					const [bytes] = await manifest.load_contents_async(null);
-					const content = defaultDecoder.decode(bytes);
-					const value = TOML.parse(content);
-					const enabled = (() => {
-						if (!("enabled" in value)) return null;
-						if (typeof value["enabled"] !== "boolean") return null;
-						return value["enabled"];
-					})();
-					const steamId = (() => {
-						if (!("steam_id" in value)) return null;
-						if (typeof value["steam_id"] !== "number") return null;
-						return value["steam_id"];
-					})();
-					const note = (() => {
-						if (!("note" in value)) return null;
-						if (typeof value["note"] !== "string") return null;
-						return value["note"];
-					})();
-					const shuffleGroup = (() => {
-						if (!("shuffle_group" in value)) return null;
-						if (typeof value["shuffle_group"] !== "string") return null;
-						return value["shuffle_group"];
-					})();
+					if (manifest === null) {
+						const value = await getExtendedAttributeDumpFromFile(x);
 
-					return {
-						enabled,
-						steamId,
-						note,
-						shuffleGroup,
-					};
+						const enabled = (() => {
+							if (!("enabled" in value)) return null;
+							return value["enabled"] === "true";
+						})();
+						const steamId = (() => {
+							if (!("steam-id" in value)) return null;
+							const numberCanNaN = Number(value["steam-id"]);
+							if (isNaN(numberCanNaN)) return null;
+							return numberCanNaN;
+						})();
+						const note = (() => {
+							if (!("note" in value)) return null;
+							return value["note"];
+						})();
+						const shuffleGroup = (() => {
+							if (!("shuffle-group" in value)) return null;
+							return value["shuffle-group"];
+						})();
+
+						return {
+							enabled,
+							steamId,
+							note,
+							shuffleGroup,
+						};
+					} else {
+						const [bytes] = await manifest.load_contents_async(null);
+						const content = defaultDecoder.decode(bytes);
+						const value = TOML.parse(content);
+
+						const enabled = (() => {
+							if (!("enabled" in value)) return null;
+							if (typeof value["enabled"] !== "boolean") return null;
+							return value["enabled"];
+						})();
+						const steamId = (() => {
+							if (!("steam_id" in value)) return null;
+							if (typeof value["steam_id"] !== "number") return null;
+							return value["steam_id"];
+						})();
+						const note = (() => {
+							if (!("note" in value)) return null;
+							if (typeof value["note"] !== "string") return null;
+							return value["note"];
+						})();
+						const shuffleGroup = (() => {
+							if (!("shuffle_group" in value)) return null;
+							if (typeof value["shuffle_group"] !== "string") return null;
+							return value["shuffle_group"];
+						})();
+
+						return {
+							enabled,
+							steamId,
+							note,
+							shuffleGroup,
+						};
+					}
 				})();
 				if (value) {
 					return {
@@ -533,7 +650,7 @@ const createWindow = () => {
 	const updateWorkspace = (root) => {
 		folderStack.set_visible_child_name("has-folder");
 		(async () => {
-			const entries = await loadFolder(root);
+			const entries = await loadFolder(root, { listFileAsync });
 
 			const monitor = root.monitor_directory(Gio.FileMonitorFlags.NONE, null);
 
@@ -745,55 +862,9 @@ const createWindow = () => {
 		})());
 	}));
 
-	const profileBar = (() => {
-		const profileBar = builder.get_object("profile_bar", Adw.Clamp);
-		const primaryButton = builder.get_object("primary_button", Gtk.ToggleButton);
-		const profileLabel = builder.get_object("profile_label", Gtk.Label);
-		const profileLabelStack = builder.get_object("profile_label_stack", Gtk.Stack);
+	const { content: profileBar } = builder.get_object("profile_bar", ProfileBar);
 
-		primaryButton.connect("notify::active", syncCreate(() => {
-			if (primaryButton.active) {
-				profileBar.add_css_class("active");
-			} else {
-				profileBar.remove_css_class("active");
-			}
-		}));
-
-		/**
-		 * @type {GLib.Source=}
-		 */
-		let useLabelTimeout = undefined;
-
-		/**
-		 * @param {string} _val
-		 */
-		const toast = (_val) => {
-			if (useLabelTimeout !== undefined) useLabelTimeout.destroy();
-			profileLabelStack.set_visible_child_name("2");
-			// @ts-expect-error
-			useLabelTimeout = setTimeout(() => {
-				profileLabelStack.set_visible_child_name("1");
-			}, 1000);
-		};
-
-		return {
-			primaryButton,
-			profileLabel,
-			toast,
-		};
-	})();
-
-	const revealHeaderbox = () => {
-		headerbox.revealChild();
-		profileBar.primaryButton.set_active(true);
-	};
-
-	const unrevealHeaderbox = () => {
-		headerbox.unrevealChild();
-		profileBar.primaryButton.set_active(false);
-	};
-
-	bindStatusToHeaderboxSection(headerbox, profileBar, window);
+	bindStatusToHeaderboxSection(headerbox, { profileLabel: profileBar.label }, window);
 
 	const banner = builder.get_object("banner", Adw.Banner);
 
@@ -811,8 +882,6 @@ const createWindow = () => {
 	});
 
 	const addonList = builder.get_object("addon_list", Gtk.ListBox);
-
-
 
 	const dropTarget = Gtk.DropTarget.new(Gtk.ListBoxRow.$gtype, Gdk.DragAction.MOVE);
 	addonList.add_controller(dropTarget);
@@ -853,7 +922,6 @@ const createWindow = () => {
 		// If everything is successful, return true to accept the drop
 		return true;
 	});
-
 
 	const headerbarTitle = builder.get_object("headerbar_title", Adw.Clamp);
 
@@ -1082,6 +1150,263 @@ const createWindow = () => {
 		});
 	});
 
+	(column => {
+		const factory = column.get_factory();
+
+		if (!(factory instanceof Gtk.SignalListItemFactory)) throw new Error;
+
+		factory.connect("setup", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const label = new Gtk.Label();
+			//label.add_css_class("text-medium");
+			label.add_css_class("dim-label");
+			listItem.set_child(label);
+		});
+
+		factory.connect("bind", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const { child: widget, item: modelItem } = listItem;
+			if (!(widget instanceof Gtk.Label)) throw new Error;
+			if (!("position" in modelItem) || typeof modelItem.position !== "number") throw new Error;
+			widget.set_label(String(modelItem.position));
+		});
+	})(builder.get_object("stobo_column_0", Gtk.ColumnViewColumn));
+
+	(column => {
+		const factory = column.get_factory();
+
+		if (!(factory instanceof Gtk.SignalListItemFactory)) throw new Error;
+
+		factory.connect("setup", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const box = new Gtk.Box();
+			const label = new Gtk.Label({
+				halign: Gtk.Align.START,
+			});
+			label.set_ellipsize(Pango.EllipsizeMode.MIDDLE);
+			box.append(label);
+			Object.assign(box, { label: new WeakRef(label) });
+			listItem.set_child(box);
+		});
+
+		factory.connect("bind", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const { child: widget, item: modelItem } = listItem;
+			if (!(widget instanceof Gtk.Box)) throw new Error;
+			(() => {
+				if (!("label" in widget) || !(widget.label instanceof WeakRef)) return;
+				const object = widget.label.deref();
+				if (object === undefined) return;
+				object.set_label(modelItem.entryName);
+			})();
+			(() => {
+				if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
+				const item = modelItem.entry.deref();
+				if (typeof item !== "object" || item === null) return;
+				(() => {
+					if (!("enabled" in item) || typeof item.enabled !== "boolean") return;
+					if (item.enabled) widget.add_css_class("dim-label");
+				})();
+				(() => {
+					if (!("note" in item) || typeof item.note !== "string") return true;
+					widget.set_tooltip_text(item.note);
+					return false;
+				})() && (() => {
+					widget.set_tooltip_text(" ")
+				})();
+			})();
+		});
+
+		factory.connect("unbind", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const { child: widget, item: modelItem } = listItem;
+			if (!(widget instanceof Gtk.Box)) throw new Error;
+			(() => {
+				if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
+				const item = modelItem.entry.deref();
+				if (typeof item !== "object" || item === null) return;
+				(() => {
+					if (!("name" in item) || typeof item.name !== "string") return;
+					widget.set_tooltip_text(" ");
+				})();
+			})();
+		});
+	})(builder.get_object("stobo_column_2", Gtk.ColumnViewColumn));
+
+
+
+	(column => {
+		const factory = column.get_factory();
+
+		if (!(factory instanceof Gtk.SignalListItemFactory)) throw new Error;
+
+		factory.connect("setup", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const icon = new Gtk.Image({
+				iconName: "list-drag-handle-symbolic",
+			});
+			icon.add_css_class("dim-label");
+			listItem.set_child(icon);
+		});
+	})(builder.get_object("stobo_column_3", Gtk.ColumnViewColumn));
+
+	const stoboColumnView = builder.get_object("stobo_column_view", Gtk.ColumnView);
+
+	const stoboColumnBuffer = new Gio.ListStore({ itemType: StoboColumnItem.$gtype });
+
+	const stoboColumnSelection = new Gtk.SingleSelection({
+		model: stoboColumnBuffer
+	});
+
+	stoboColumnView.set_model(stoboColumnSelection);
+
+	stoboColumnView.connect("activate", (_, position) => {
+		const modelItem = stoboColumnBuffer.get_item(position);
+		if (modelItem === null) return;
+		if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
+		const x = modelItem.entry.deref();
+		if (x === undefined) return;
+		const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(AddonControls.substring(11)));
+		const dialog = builder.get_object("window", Adw.Dialog);
+		useFile(dialog, builder, window);
+		(() => {
+			if (!("name" in x) || typeof x.name !== "string") return;
+			const title = builder.get_object("title", Adw.WindowTitle);
+			title.set_title(x.name);
+		})();
+		(() => {
+			if (!("archive" in x) || !(x["archive"] instanceof Gio.File)) return;
+			const path = x.archive.get_path();
+			if (path === null) return;
+			const showArchiveButton = builder.get_object("show_archive_button", Gtk.Button);
+			showArchiveButton.set_action_target_value(GLib.Variant.new_tuple([GLib.Variant.new_string(path)]));
+			showArchiveButton.connect_after("clicked", () => {
+				dialog.close();
+			});
+		})();
+		dialog.present(window);
+	});
+
+	const rightClick = Object.assign(new Gtk.GestureClick(), {
+		popover: (() => {
+			const object = new Gtk.PopoverMenu;
+			object.set_has_arrow(false);
+			return object;
+		})(),
+	});
+	rightClick.set_button(3);
+	rightClick.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+	rightClick.connect("pressed", (_object, nPress, x, y) => {
+		(() => {
+			if (nPress !== 1) {
+				console.log("not enough press", nPress);
+				return;
+			}
+			const idx = (() => {
+				return Math.round((y / stoboColumnView.get_allocation().height) * stoboColumnBuffer.get_n_items());
+			})();
+			const modelItem = stoboColumnBuffer.get_item(idx);
+			if (modelItem === null) {
+				console.log("item is null");
+				return;
+			}
+			const menu = (() => {
+				const menu = new Gio.Menu;
+
+				menu.append_submenu(_("Move to Index..."), (() => {
+					const menu = new Gio.Menu;
+
+					const widgetPlaceholder = new Gio.MenuItem;
+					widgetPlaceholder.set_attribute_value("custom", GLib.Variant.new_string("move-to-index-widget"));
+					menu.append_item(widgetPlaceholder);
+
+					return menu;
+				})());
+
+				return menu;
+			})();
+
+			const { popover } = rightClick;
+			popover.set_menu_model(menu);
+			popover.unparent();
+			popover.set_parent(stoboColumnView);
+			popover.set_pointing_to((() => {
+				const val = new Gdk.Rectangle();
+				val.x = x;
+				val.y = y;
+				val.width = 1;
+				val.height = 1;
+				return val;
+			})());
+			popover.set_menu_model(menu);
+
+			const container = new Adw.Clamp;
+			container.set_maximum_size(120);
+			container.set_margin_top(12);
+			container.set_margin_bottom(12);
+
+			container.set_child((() => {
+				const box = new Gtk.Box;
+				box.add_css_class("linked");
+
+				const entry = new Gtk.Entry;
+				entry.set_size_request(56, -1);
+				box.append(entry);
+
+				box.append((() => {
+					const button = new Gtk.Button;
+					button.set_label(_("Move"));
+					button.add_css_class("suggested-action");
+					button.connect("clicked", () => {
+
+					});
+					return button;
+				})());
+
+				return box;
+			})());
+
+			// NOTE(kinten): add child to popover menu AFTER adding placeholder gmenu item
+			popover.add_child(container, "move-to-index-widget");
+
+			//popover.set_visible(true);
+		})();
+		stoboColumnView.reset_state(Gtk.AccessibleState.CHECKED);
+		rightClick.reset();
+	});
+	stoboColumnView.add_controller(rightClick);
+
+	events.connect("workspaceChanged", () => {
+		if (_workspace === undefined) {
+			console.debug("Cannot update matcher list when there is no workspace");
+			return;
+		}
+
+		const { entries, manualOrder } = _workspace;
+
+		const newItems = manualOrder.map(function (key){
+			const x = entries.find(y => y.name === key);
+
+			if (x === undefined) return null;
+
+			return Object.assign(new StoboColumnItem({ entryName: x.name }), { entry: new WeakRef(x) });
+		}, _workspace)
+			.filter(
+				/**
+				 * @template T
+				 * @param {T | null} x
+				 * @returns {x is T}
+				 */
+				x => x !== null)
+			.map((x, i) => {
+				return Object.assign(x, {
+					position: i,
+				});
+			});
+
+		stoboColumnBuffer.splice(0, stoboColumnBuffer.get_n_items(), newItems);
+	});
+
 	const matcherList = builder.get_object("matcher_list", Gtk.ListBox);
 
 	events.connect("workspaceChanged", () => {
@@ -1117,7 +1442,67 @@ const createWindow = () => {
 		popover.unparent();
 	});
 
+	const { content: stoboProfileBar } = builder.get_object("stobo_profile_bar", ProfileBar);
+
+	const stoboProfile = StoboProfile(stoboProfileBar);
+
+	stoboProfile.onPopoverClosed(() => {
+		stoboProfileBar.primaryButton.activate_action("headerbox.reveal", null);
+	});
+
 	const workspaceActions = new Gio.SimpleActionGroup();
+
+	const toggleConsole = new Gio.SimpleAction({
+		name: "toggle-console",
+	});
+
+	const contentOverlay = builder.get_object("content_overlay", Gtk.Box);
+
+	const end = 300;
+
+	const bottomConsoleBox = builder.get_object("bottom_console_box", Gtk.Box);
+
+	const consoleSlidingUp = new Adw.SpringAnimation({
+		widget: contentOverlay,
+		valueFrom: 0,
+		valueTo: 1,
+		springParams: Adw.SpringParams.new(0.60, 1.0, 600.0),
+		target: Adw.CallbackAnimationTarget.new((value) => {
+			const marginValue = Adw.lerp(28, end, value);
+			contentOverlay.set_margin_bottom(marginValue);
+			const heightValue = Adw.lerp(12, end - 16, value);
+			bottomConsoleBox.set_size_request(-1, heightValue);
+		}),
+	});
+	consoleSlidingUp.initialVelocity = 5.0;
+	consoleSlidingUp.epsilon = 0.001;
+	consoleSlidingUp.clamp = false;
+
+	const consoleSlidingDown = new Adw.SpringAnimation({
+		widget: contentOverlay,
+		valueFrom: 0,
+		valueTo: 1,
+		springParams: Adw.SpringParams.new(1, 1.0, 600.0),
+		target: Adw.CallbackAnimationTarget.new((value) => {
+			const marginValue = Adw.lerp(28, end, 1 - value);
+			contentOverlay.set_margin_bottom(marginValue);
+			const heightValue = Adw.lerp(12, end - 16, 1 - value);
+			bottomConsoleBox.set_size_request(-1, heightValue);
+		}),
+	});
+	consoleSlidingDown.initialVelocity = 5.0;
+	consoleSlidingDown.epsilon = 0.001;
+	consoleSlidingDown.clamp = false;
+
+	let isConsoleVisible = false;
+
+	toggleConsole.connect("activate", () => {
+		const animation = isConsoleVisible ? consoleSlidingDown : consoleSlidingUp;
+		animation.play();
+		isConsoleVisible = !isConsoleVisible;
+	});
+
+	workspaceActions.add_action(toggleConsole);
 
 	const explore = new Gio.SimpleAction({
 		name: "explore",
@@ -1311,9 +1696,13 @@ const createWindow = () => {
 	headerbox_reveal.connect("activate", (_action) => {
 		nextReveal = !nextReveal;
 		if (nextReveal) {
-			revealHeaderbox();
+			headerbox.revealChild();
+			profileBar.primaryButton.set_active(true);
+			stoboProfile.set_reveal(true);
 		} else {
-			unrevealHeaderbox();
+			headerbox.unrevealChild();
+			profileBar.primaryButton.set_active(false);
+			stoboProfile.set_reveal(false);
 		}
 	});
 
