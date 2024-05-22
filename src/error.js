@@ -23,3 +23,8 @@ export const DbServiceErrorEnum = {
 	NotFound: 4,
 };
 
+export class MissingWorkspace extends Error {
+	constructor() {
+		super("Cannot do a task when there is no workspace");
+	}
+}

@@ -525,3 +525,14 @@ columnview.py-\[1px\] cell {
   margin: 16px;
 }
 
+columnview.dragging row:selected {
+	background: transparent;
+}
+
+columnview.dragging.down row:selected {
+	border-bottom: solid 2px blue;
+}
+
+columnview.dragging.up row:selected {
+	border-top: solid 2px blue;
+}

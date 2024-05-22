@@ -26,6 +26,17 @@
 	"modules": [
 		"modules/blueprint-compiler.json",
 		{
+			"name": "xattr-editor",
+			"buildsystem": "meson",
+			"sources": [
+				{
+					"type": "dir",
+					"path": "../xattr-editor"
+				}
+			]
+		},
+		{
+			"name": "Stobo",
 			"buildsystem": "meson",
 			"sources": [
 				{
@@ -33,7 +44,6 @@
 					"path": ".."
 				}
 			]
-			"name": "Stobo",
 		}
 	]
 }

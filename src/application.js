@@ -8,14 +8,13 @@ import Adw from "gi://Adw";
 import { gettext as _ } from "gettext";
 
 import extendBuilder from "./lib/builder.js";
-import { syncCreate } from "./lib/functional.js";
+import { logWhenCatch, syncCreate } from "./lib/functional.js";
 import { addError } from "./services/status.js";
 import Window from "./window.blp" with { type: "uri" };
 import add from "./add.blp" with { type: "uri" };
 import AddonDetails from "./addonDetails.blp" with { type: "uri" };
 import AddonControls from "./addonControls.blp" with { type: "uri" };
 import Preferences from "./preferences.blp" with { type: "uri" };
-import Matcher from "./matcher.blp" with { type: "uri" };
 import HeaderBox, { bindStatusToHeaderboxSection } from "./legacy/headerbox.js";
 import { defaultDecoder, defaultEncoder, isDirAsync, listFileAsync, makeDirNonstrictAsync, readJsonAsync, replaceJsonAsync } from "./lib/fileIO.js";
 import TOML from "./lib/fast-toml.js";
@@ -28,8 +27,17 @@ import StoboProfile from "./functionComponents/stoboProfile.js";
 import delayMs from "./lib/delayMs.js";
 import DocumentChooser, { DocumentEntry, DocumentRow } from "./classes/documentChooser.js";
 import Embed from "./classes/embed.js";
+import StoboColumnView from "./functionComponents/stoboColumnView.js";
+import { MissingWorkspace } from "./error.js";
 
 const T_CLOSURE_NONE = /** @type {GObject.TClosure} */(/** @type {unknown} */(null));
+
+/**
+ * @param {string} uri
+ */
+async function _import(uri) {
+	return import(uri);
+}
 
 /**
  * @typedef {(signal: string, cb: (...args: any[]) => void) => number} ConnectMethod
@@ -73,6 +81,48 @@ var Stobo = {
 	}
 };
 
+function forceRefresh(x) {
+	if (x === _import) {
+		/**
+		 * param {string} path
+		 */
+		return async function (uri) {
+			const file = Gio.File.new_for_uri(uri);
+			const [bytes] = await file.load_contents_async(null);
+			const str = defaultDecoder.decode(bytes).split("\n").map(x => {
+				return String(x).replaceAll("export default", "var exports_default =");
+			}).reduce((acc, x) => acc + x, "").concat("return { default: exports_default };");
+			return Function(str)();
+		};
+	} else throw new Error;
+}
+
+/**
+ * @param {{ get_height(): number }} view
+ * @param {Gio.ListModel} model
+ * @param {number} y
+ */
+function getIndex(view, model, y) {
+	return Math.round(((y - 35) / (view.get_height() - 35)) * (model.get_n_items() - 1));
+}
+
+/**
+ * @template {any[]} K
+ * @template {(...args: K) => Promise<void>} T
+ * @param {T} x
+ */
+function nowait(x) {
+	/**
+	 * @type {(...args: K) => void}
+	 */
+	const a = (...args) => {
+		x(...args).catch(logError);
+	};
+
+	return a;
+}
+
+// @ts-expect-error
 const AdwCallbackAnimationTarget = new Proxy(class extends Adw.CallbackAnimationTarget {
 	/**
 	 * @param {{ callback: (value: number) => void }} _args
@@ -105,32 +155,32 @@ const settings = /** @type {{ get_string(key: string): string } & Gio.Settings} 
 /**
  * @param {Gio.File} gameDir
  */
-const getDestinationDir = (gameDir) => {
+function getDestinationDir(gameDir) {
 	return gameDir.get_child("left4dead2").get_child("addons");
-};
+}
 
 /**
  * @param {string} path
  */
-const makeCanonicalPath = (path) => {
+function makeCanonicalPath(path) {
 	const homeDir = GLib.get_home_dir();
 	const newVal = GLib.canonicalize_filename(path.replace("~", homeDir), null);
 	return newVal;
-};
+}
 
 /**
  * @param {string} canonicalPath
  */
-const collapsePath = (canonicalPath) => {
+function collapsePath(canonicalPath) {
 	const homeDir = GLib.get_home_dir();
 	const newVal = canonicalPath.replace(homeDir, "~");
 	return newVal;
-};
+}
 
 /**
  * @param {Gio.Cancellable | null} cancellable
  */
-const cleanup = async (cancellable) => {
+async function cleanup(cancellable) {
 	const preGameDir = settings.get_string("game-dir");
 	const gameDir = Gio.File.new_for_path(makeCanonicalPath(preGameDir));
 	const destDir = getDestinationDir(gameDir);
@@ -144,7 +194,7 @@ const cleanup = async (cancellable) => {
 		if (!name.includes("@stvpk.vpk")) continue;
 		await x.delete_async(GLib.PRIORITY_DEFAULT, cancellable);
 	}
-};
+}
 
 /**
  * @param {Gio.File} root
@@ -152,7 +202,7 @@ const cleanup = async (cancellable) => {
  * @param {{ addLine(line: string): void; }} updateSuite
  * @param {Gio.Cancellable | null} cancellable
  */
-const link = async (root, archives, { addLine }, cancellable) => {
+async function link(root, archives, { addLine }, cancellable) {
 	const preGameDir = settings.get_string("game-dir");
 	const gameDir = Gio.File.new_for_path(makeCanonicalPath(preGameDir));
 	const destDir = getDestinationDir(gameDir);
@@ -220,13 +270,13 @@ const link = async (root, archives, { addLine }, cancellable) => {
 			root: collapsePath(rootPath)
 		}, ...entries],
 	}, logFile);
-};
+}
 
 /**
  * @param {(Awaited<ReturnType<typeof loadFolder>>)} entries
  * @param {Readonly<Map<string, string>>} previousShuffleChoices
  */
-const filter = (entries, previousShuffleChoices) => {
+function filter(entries, previousShuffleChoices) {
 	/**
 	 * @type Gio.File[]
 	 */
@@ -277,14 +327,14 @@ const filter = (entries, previousShuffleChoices) => {
 		files.push(selected);
 	}
 	return { files, shuffleChoices: /** @type {Readonly<typeof shuffleChoices>} */(shuffleChoices) };
-};
+}
 
 const xattrNamespace = "user.stobo";
 
 /**
  * @param {Gio.File} file
  */
-const getExtendedAttributeDumpFromFile = async (file) => {
+async function getExtendedAttributeDumpFromFile(file) {
 	const buffer = /** @type {{[key: string]: string}} */({});
 	const path = file.get_path();
 	if (path === null) return buffer;
@@ -310,7 +360,7 @@ const getExtendedAttributeDumpFromFile = async (file) => {
 		}
 	}
 	return buffer;
-};
+}
 
 /**
  * @param {Gio.File} dir
@@ -318,7 +368,7 @@ const getExtendedAttributeDumpFromFile = async (file) => {
  * listFileAsync: (dir: Gio.File) => Promise<Gio.File[]>;
  * }} params
  */
-const loadFolder = async (dir, { listFileAsync }) => {
+async function loadFolder(dir, { listFileAsync }) {
 	const files = await listFileAsync(dir);
 
 	const manifests = files
@@ -448,12 +498,13 @@ const loadFolder = async (dir, { listFileAsync }) => {
 		 * @returns {value is TValue}
 		 */
 		(value) => value !== null);
-};
+}
 
 /**
- * @param {{ root: Gio.File; entries: Awaited<ReturnType<typeof loadFolder>> }} workspace
+ * @param {Gio.File} root
+ * @param {{ entries: Awaited<ReturnType<typeof loadFolder>> }} workspace
  */
-const exportAsList = async ({ root, entries }) => {
+async function exportAsList(root, { entries }) {
 	const jsonContent = {
 		repository: (() => {
 			const val = root.get_path();
@@ -501,7 +552,29 @@ const exportAsList = async ({ root, entries }) => {
 	}
 
 	await replaceJsonAsync(jsonContent, file);
-};
+}
+
+globalThis.exportAsList = exportAsList;
+
+/**
+ * @param {Gio.File} root
+ */
+async function measureDiskUsage(root) {
+	/** @type {Gio.File[]} */
+	const files = [];
+	const targets = [root];
+	while (targets.length > 0) {
+		const [head] = targets.splice(0, 1);
+		if (head === undefined) throw new Error;
+		for (const x of await listFileAsync(head)) {
+			const buffer = (await isDirAsync(x)) ? targets : files;
+			buffer.push(x);
+		}
+	}
+	return (await Promise.all(
+		files.map(x => x.query_info_async("*", Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null).then(x => x.get_size(), _ => 0))
+	)).reduce((acc, x) => acc + x, 0);
+}
 
 /**
  * @type string[]
@@ -522,7 +595,7 @@ settings.connect("changed::recent-workspaces", syncCreate(() => {
 /**
  * @param {string} val
  */
-const pushRecentWorkspace = (val) => {
+function pushRecentWorkspace(val) {
 	const existingPathIdx = _recentWorkspaces.indexOf(val);
 	const newVal = (() => {
 		if (existingPathIdx !== -1) {
@@ -533,54 +606,372 @@ const pushRecentWorkspace = (val) => {
 	})();
 	settings.set_value("recent-workspaces", GLib.Variant.new_array(GLib.VariantType.new("s"), newVal.map(x => GLib.Variant.new_string(x))));
 	return true;
-};
+}
 
 /**
  * @param {Gio.File} root
- * @param {"manual-order" | "shuffle-choices"} filename
+ * @param {"manual-order" | "shuffle-choices" | "log"} filename
  */
-const loadFromWorkspaceStorage = async (root, filename) => {
+async function writeToWorkspaceStorage(root, filename) {
 	const workspaceData = root.get_child(".stobo");
 	await makeDirNonstrictAsync(workspaceData);
-	const manualOrderFile = workspaceData.get_child(filename);
-	let content = await readJsonAsync(manualOrderFile);
-
 	switch (filename) {
-	case "manual-order":
-		{
-			if (!Array.isArray(content)) {
-				throw new Error;
-			}
-
-			for (const index in content) {
-				const x = content[index];
-				if (typeof x !== "string") throw new Error;;
-			}
-		}
-		break;
-	case "shuffle-choices":
-		{
-			if (typeof content !== "object" || content === null) {
-				throw new Error;
-			}
-
-			const newVal = new Map;
-
-			for (const key in content) {
-				const x = content[key];
-				if (typeof x !== "string") throw new Error;
-				newVal.set(key, x);
-			}
-
-			content = newVal;
-		}
-		break;
+	case "log":
+		return 1;
 	default:
 		throw new Error;
 	}
+}
+
+/**
+ * @param {Gio.File} root
+ * @param {"manual-order" | "shuffle-choices" | "log"} filename
+ */
+async function loadFromWorkspaceStorage(root, filename) {
+	const workspaceData = root.get_child(".stobo");
+	await makeDirNonstrictAsync(workspaceData);
+	const file = workspaceData.get_child(filename);
+	const content = await (async () => {
+		switch (filename) {
+		case "manual-order":
+			return await (async () => {
+				const content = await readJsonAsync(file);
+
+				if (!Array.isArray(content)) throw new Error;
+				if (!(
+					/**
+					 * @param {any[]} x
+					 * @returns {x is string[]}
+					 */
+					function (x) {
+						return x.some(y => typeof y === "string");
+					}
+				)(content)) throw new Error;
+
+				for (const index in content) {
+					const x = content[index];
+					if (typeof x !== "string") throw new Error;;
+				}
+
+				return { filename, content };
+			})();
+		case "shuffle-choices":
+			return await (async () => {
+				const raw = await readJsonAsync(file);
+
+				if (typeof raw !== "object") throw new Error;
+
+				const content = (() => {
+					const val = new Map([["", ""]]);
+
+					for (const key in raw) {
+						const x = raw[key];
+						if (typeof x !== "string") throw new Error;
+						val.set(key, x);
+					}
+
+					return val;
+				})();
+
+				return { filename, content };
+			})();
+		case "log":
+			return await (async () => {
+				const content = await file.query_info_async("*", Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, null);
+				const modificationTime = new Date(content.get_modification_time().tv_sec * 1000);
+
+				return {
+					filename,
+					content: {
+						modificationTime,
+					}
+				};
+			})();
+		default:
+			throw new Error;
+		}
+	})();
 
 	return content;
-};
+}
+
+/**
+ * @param {Gio.File} root
+ */
+export async function loadWorkspace(root) {
+	const entries = await loadFolder(root, { listFileAsync });
+
+	const monitor = root.monitor_directory(Gio.FileMonitorFlags.NONE, null);
+
+	/**
+	 * @type {number[]}
+	 */
+	const monitorBindings = [];
+
+	/**
+	 * @type {{}
+	 * 	& Signal<"changed::manual-order", [typeof _manualOrder]>
+	 * 	& Signal<"changed::shuffle-choices", [typeof _shuffleChoices]>
+	 *  & Signal<"changed::last-build", [typeof _lastBuild]>
+	 * 	& SharedSignalMethods}
+	 */
+	const events = addSignalMethods();
+
+	/**
+	 * @type Readonly<string[]>
+	 */
+	let _manualOrder = [];
+
+	/**
+	 * @type {Map<string, string>}
+	 */
+	let _shuffleChoices = new Map;
+
+	/**
+	 * @type {Date?}
+	 */
+	let _lastBuild = null;
+
+	/**
+	 * @param {typeof _manualOrder} val
+	 */
+	const setManualOrder = (val) => {
+		_manualOrder = val;
+		events.emit("changed::manual-order", _manualOrder);
+	};
+
+	/**
+	 * @param {Date?} val
+	 */
+	const setLastBuild = Object.assign(function (val) {
+		_lastBuild = val;
+		events.emit("changed::last-build", val);
+	}, {
+		silently: () => (
+			/**
+		 	 * @param {Date?} val
+		 	 */
+			function (val) {
+				_lastBuild = val;
+			})
+	});
+
+	events.connect("changed::manual-order", (_, newVal) => {
+		(async () => {
+			const workspaceData = root.get_child(".stobo");
+			await makeDirNonstrictAsync(workspaceData);
+			const manualOrderFile = workspaceData.get_child("manual-order");
+			await replaceJsonAsync(newVal, manualOrderFile);
+		})().catch(logError);
+	});
+
+	events.connect("changed::shuffle-choices", (_, newVal) => {
+		(async () => {
+			const workspaceData = root.get_child(".stobo");
+			await makeDirNonstrictAsync(workspaceData);
+			const dest = workspaceData.get_child("shuffle-choices");
+			/**
+			 * @type {{ [key: string]: string }}
+			 */
+			const obj = {};
+			newVal.forEach((val, key) => {
+				obj[key] = val;
+			});
+			await replaceJsonAsync(obj, dest);
+		})().catch(logError);
+	});
+
+	events.connect("changed::last-build", (_, _newVal) => {
+		(async () => {
+			const workspaceData = root.get_child(".stobo");
+			await makeDirNonstrictAsync(workspaceData);
+			const manualOrderFile = workspaceData.get_child("log");
+			await replaceJsonAsync({}, manualOrderFile);
+		})().catch(logError);
+	});
+
+	const savedOrder = await (async () => {
+		try {
+			const { filename, content: value } = await loadFromWorkspaceStorage(root, "manual-order");
+			if (filename !== "manual-order") throw new Error;
+			return value;
+		} catch (error) {
+			if (error instanceof GLib.Error && error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_FOUND)) {
+
+			} else {
+				logError(error);
+			}
+			return [];
+		}
+	})();
+
+	/**
+	 * @type {string[]}
+	 */
+	const newOrder = [];
+
+	const physicalOrderTemp = entries.map(x => x.name);
+
+	for (const index in savedOrder) {
+		const x = savedOrder[index];
+		if (x === undefined) continue;
+		const foundIdx = physicalOrderTemp.indexOf(x);
+		if (foundIdx !== -1) {
+			newOrder.push(x);
+			physicalOrderTemp.splice(foundIdx, 1);
+		}
+	}
+
+	for (const index in physicalOrderTemp) {
+		const x = physicalOrderTemp[index];
+		if (x === undefined) continue;
+		newOrder.push(x);
+	}
+
+	setManualOrder(newOrder);
+
+	const savedShuffleChoices = await (async () => {
+		try {
+			const { filename, content: value } = await loadFromWorkspaceStorage(root, "shuffle-choices");
+			if (filename !== "shuffle-choices") throw new Error;
+			return value;
+		} catch (error) {
+			if (error instanceof GLib.Error && error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_FOUND)) {
+
+			} else {
+				logError(error);
+			}
+			return new Map([["", ""]]);
+		}
+	})();
+
+	const savedLog = await (async () => {
+		try {
+			const { filename, content: value } = await loadFromWorkspaceStorage(root, "log");
+			if (filename !== "log") throw new Error;
+			return value;
+		} catch (error) {
+			if (error instanceof GLib.Error && error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_FOUND)) {
+
+			} else {
+				logError(error);
+			}
+			return {
+				modificationTime: null
+			}
+		}
+	})();
+
+	setLastBuild.silently()(savedLog.modificationTime);
+
+	return {
+		root,
+		entries,
+		/**
+		 * @param {() => void} cb
+		 */
+		onFsChanged(cb) {
+			monitorBindings.push(monitor.connect("changed", cb));
+		},
+		/**
+		 * @param {{
+	 	 * 		type: "move";
+	 	 * 		src: string;
+	 	 *  	target: string;
+		 * }} params
+		 */
+		requestChangeManualOrder: function ({ type, ...data }) {
+			switch (type) {
+			case "move":
+			{
+				const { src, target } = data;
+				const from = _manualOrder.indexOf(src);
+				if (from === -1) {
+					console.warn("changed::manual-order: non-existent move target");
+					break;
+				}
+				const to = _manualOrder.indexOf(target);
+				if (to === -1) {
+					console.warn("changed::manual-order: non-existent move target");
+					break;
+				}
+				const newOrder = [..._manualOrder];
+				const [draggable] = newOrder.splice(from, 1);
+				if (draggable === undefined) {
+					console.warn("changed::manual-order: non-existent move target");
+					break;
+				}
+				newOrder.splice(to, 0, draggable);
+				setManualOrder(newOrder);
+				break;
+			}
+			default:
+				break;
+			}
+		},
+		get manualOrder() {
+			return _manualOrder;
+		},
+		/**
+		 * @param {number} id
+		 */
+		_disconnect: (id) => events.disconnect(id),
+		/**
+		 * @param {string} signal
+		 * @param {(...args: any[]) => void} callback
+		 */
+		// @ts-expect-error
+		_connect: (signal, callback) => events.connect(signal, callback),
+		requestSaveShuffleChoices: syncCreate(
+			/**
+			 * @param {ReturnType<typeof filter>["shuffleChoices"]} choices
+			 */
+			function (choices) {
+				_shuffleChoices = choices;
+				events.emit("changed::shuffle-choices", choices);
+			},
+			savedShuffleChoices
+		),
+		get shuffleChoices() {
+			return _shuffleChoices;
+		},
+		setLastBuild,
+		get lastBuild() {
+			return _lastBuild;
+		},
+		destroy() {
+			events.disconnectAll();
+			for (const x of monitorBindings) {
+				monitor.disconnect(x);
+			}
+		}
+	};
+}
+
+/**
+ * @param {Gtk.Stack} folderStack
+ * @param {{
+ * setWorkspace(param: any): void;
+ * }} workspaceBuffer
+ */
+function updateWorkspace(folderStack, { setWorkspace }) {
+	/**
+	 * @param {Gio.File} root
+	 */
+	return function (root) {
+		folderStack.set_visible_child_name("has-folder");
+		(async () => {
+			const draft = await loadWorkspace(root);
+
+			setWorkspace(draft);
+
+			const dirPath = root.get_path();
+			if (dirPath === null) throw new Error;
+
+			pushRecentWorkspace(collapsePath(dirPath));
+		})().catch(logError);
+	}
+}
 
 const createWindow = () => {
 	const builder = extendBuilder(Gtk.Builder.new_from_resource(Window.substr(11)));
@@ -599,22 +990,7 @@ const createWindow = () => {
 	const events = addSignalMethods();
 
 	/**
-	 * @type {Readonly<{
-	 * 	root: Gio.File;
-	 * 	entries: Awaited<ReturnType<typeof loadFolder>>;
-	 *  requestChangeManualOrder(params: {
- 	 * 		type: "move";
- 	 * 		src: string;
- 	 *  	target: string;
-	 * 	}): void;
-	 *  get manualOrder(): Readonly<string[]>;
-	 *  disconnect(id: number): void;
-	 *  connect(signal: string, cb: (...args: any[]) => void): number;
-	 *  requestSaveShuffleChoices(choices: ReturnType<typeof filter>["shuffleChoices"]): void;
-	 * 	get shuffleChoices(): Readonly<Map<string, string>>;
-	 * 	onFsChanged(cb: () => void): void;
-	 * 	destroy(): void;
-	 * }>=}
+	 * @type {Readonly<Awaited<ReturnType<typeof loadWorkspace>>>=}
 	 */
 	let _workspace;
 
@@ -627,212 +1003,15 @@ const createWindow = () => {
 		events.emit("workspaceChanged");
 	};
 
-	/**
-	 * Has side effects
-	 *
-	 * @param {Gio.File} root
-	 */
-	const updateWorkspace = (root) => {
-		folderStack.set_visible_child_name("has-folder");
-		(async () => {
-			const entries = await loadFolder(root, { listFileAsync });
-
-			const monitor = root.monitor_directory(Gio.FileMonitorFlags.NONE, null);
-
-			/**
-			 * @type {number[]}
-			 */
-			const monitorBindings = [];
-
-			/**
-			 * @type {{}
-			 * 	& Signal<"changed::manual-order", [typeof _manualOrder]>
-			 * 	& Signal<"changed::shuffle-choices", [typeof _shuffleChoices]>
-			 * 	& SharedSignalMethods}
-			 */
-			const events = addSignalMethods();
-
-			/**
-			 * @type Readonly<string[]>
-			 */
-			let _manualOrder = [];
-
-			/**
-			 * @type {Map<string, string>}
-			 */
-			let _shuffleChoices = new Map;
-
-			/**
-			 * @param {typeof _manualOrder} val
-			 */
-			const setManualOrder = (val) => {
-				_manualOrder = val;
-				events.emit("changed::manual-order", _manualOrder);
-			};
-
-			/**
-			 * @type {Exclude<typeof _workspace, undefined>["requestChangeManualOrder"]}
-			 */
-			const requestChangeManualOrder = ({ type, ...data }) => {
-				switch (type) {
-				case "move":
-					{
-						const { src, target } = data;
-						const from = _manualOrder.indexOf(src);
-						if (from === -1) {
-							console.warn("changed::manual-order: non-existent move target");
-							break;
-						}
-						const to = _manualOrder.indexOf(target);
-						if (to === -1) {
-							console.warn("changed::manual-order: non-existent move target");
-							break;
-						}
-						const newOrder = [..._manualOrder];
-						const [draggable] = newOrder.splice(from, 1);
-						if (draggable === undefined) {
-							console.warn("changed::manual-order: non-existent move target");
-							break;
-						}
-						newOrder.splice(to, 0, draggable);
-						setManualOrder(newOrder);
-					}
-					break;
-				default:
-					break;
-				}
-			}
-
-			/**
-			 * @type {Exclude<typeof _workspace, undefined>["requestSaveShuffleChoices"]}
-			 */
-			const requestSaveShuffleChoices = (choices) => {
-				_shuffleChoices = choices;
-				events.emit("changed::shuffle-choices", choices);
-			};
-
-			events.connect("changed::manual-order", (_, newVal) => {
-				(async () => {
-					const workspaceData = root.get_child(".stobo");
-					await makeDirNonstrictAsync(workspaceData);
-					const manualOrderFile = workspaceData.get_child("manual-order");
-					await replaceJsonAsync(newVal, manualOrderFile);
-				})().catch(logError);
-			});
-
-			events.connect("changed::shuffle-choices", (_, newVal) => {
-				(async () => {
-					const workspaceData = root.get_child(".stobo");
-					await makeDirNonstrictAsync(workspaceData);
-					const dest = workspaceData.get_child("shuffle-choices");
-					/**
-					 * @type {{ [key: string]: string }}
-					 */
-					const obj = {};
-					newVal.forEach((val, key) => {
-						obj[key] = val;
-					});
-					await replaceJsonAsync(obj, dest);
-				})().catch(logError);
-			});
-
-			const savedOrder = await (async () => {
-				/**
-				 * @type {string[]}
-				 */
-				let value;
-				try {
-					value = await loadFromWorkspaceStorage(root, "manual-order");
-				} catch (error) {
-					logError(error);
-					value = [];
-				}
-				return value;
-			})();
-
-			/**
-			 * @type {string[]}
-			 */
-			const newOrder = [];
-
-			const physicalOrderTemp = entries.map(x => x.name);
-
-			for (const index in savedOrder) {
-				const x = savedOrder[index];
-				if (x === undefined) continue;
-				const foundIdx = physicalOrderTemp.indexOf(x);
-				if (foundIdx !== -1) {
-					newOrder.push(x);
-					physicalOrderTemp.splice(foundIdx, 1);
-				}
-			}
-
-			for (const index in physicalOrderTemp) {
-				const x = physicalOrderTemp[index];
-				if (x === undefined) continue;
-				newOrder.push(x);
-			}
-
-			setManualOrder(newOrder);
-
-			const savedShuffleChoices = await (async () => {
-				/**
-				 * @type {Map<string, string>}
-				 */
-				let value;
-				try {
-					value = await loadFromWorkspaceStorage(root, "shuffle-choices");
-				} catch (error) {
-					logError(error);
-					value = new Map;
-				}
-				return value;
-			})();
-
-			_shuffleChoices = savedShuffleChoices;
-			events.emit("changed::shuffle-choices", savedShuffleChoices);
-
-			setWorkspace({
-				root,
-				entries,
-				onFsChanged(cb) {
-					monitorBindings.push(monitor.connect("changed", cb));
-				},
-				requestChangeManualOrder,
-				get manualOrder() {
-					return _manualOrder;
-				},
-				disconnect: (id) => events.disconnect(id),
-				// @ts-expect-error
-				connect: (signal, callback) => events.connect(signal, callback),
-				requestSaveShuffleChoices,
-				get shuffleChoices() {
-					return _shuffleChoices;
-				},
-				destroy() {
-					events.disconnectAll();
-					for (const x of monitorBindings) {
-						monitor.disconnect(x);
-					}
-				}
-			});
-
-			const dirPath = root.get_path();
-			if (dirPath === null) throw new Error;
-
-			pushRecentWorkspace(collapsePath(dirPath));
-		})().catch(logError);
-	};
-
 	files.output_signals.connect("changed::workspace", (_, __, dir) => {
-		updateWorkspace(dir);
+		updateWorkspace(folderStack, { setWorkspace })(dir);
 	});
 
 	const headerbox = HeaderBox(builder);
 
-	events.connect("workspaceChanged", syncCreate(() => {
+	events.connect("workspaceChanged", syncCreate(logWhenCatch(() => {
 		// TODO(kinten): Empty workspace data? When? How is UI?
-		if (_workspace === undefined) return;
+		if (_workspace === undefined) throw new MissingWorkspace;
 		const { addonCountLabel, headerboxProfileLabel } = headerbox;
 		(() => {
 			const { entries } = _workspace;
@@ -845,7 +1024,7 @@ const createWindow = () => {
 			if (profileName === null) return _("Unknown repository");
 			return profileName;
 		})());
-	}));
+	})));
 
 	const { content: profileBar } = builder.get_object("profile_bar", ProfileBar);
 
@@ -854,11 +1033,8 @@ const createWindow = () => {
 	const banner = builder.get_object("banner", Adw.Banner);
 	const stoboBanner = builder.get_object("stobo_banner", Adw.Banner);
 
-	events.connect("workspaceChanged", () => {
-		if (_workspace === undefined) {
-			console.debug("Cannot update banner when there is no workspace");
-			return;
-		}
+	events.connect("workspaceChanged", logWhenCatch(() => {
+		if (_workspace === undefined) throw new MissingWorkspace;
 
 		banner.set_revealed(false);
 		stoboBanner.set_revealed(false);
@@ -867,7 +1043,7 @@ const createWindow = () => {
 			banner.set_revealed(true);
 			stoboBanner.set_revealed(true);
 		});
-	});
+	}));
 
 	const addonList = builder.get_object("addon_list", Gtk.ListBox);
 
@@ -875,13 +1051,10 @@ const createWindow = () => {
 	addonList.add_controller(dropTarget);
 
 	// Drop Handling
-	dropTarget.connect("drop", (_drop, value, _x, y) => {
+	dropTarget.connect("drop", logWhenCatch((_drop, value, _x, y) => {
 		if (!("srcName" in value) || typeof value.srcName !== "string") throw new Error;
 
-		if (_workspace === undefined) {
-			console.debug("Cannot update addon list when there is no workspace");
-			return;
-		}
+		if (_workspace === undefined) throw new MissingWorkspace;
 
 		const targetRow = addonList.get_row_at_y(y);
 		// If value or the target row is null, do not accept the drop
@@ -909,7 +1082,7 @@ const createWindow = () => {
 
 		// If everything is successful, return true to accept the drop
 		return true;
-	});
+	}));
 
 	const headerbarTitle = builder.get_object("headerbar_title", Adw.Clamp);
 
@@ -935,21 +1108,15 @@ const createWindow = () => {
 
 	const popover = new Gtk.PopoverMenu;
 
-	events.connect("workspaceChanged", () => {
-		if (_workspace === undefined) {
-			console.debug("Cannot update addon list when there is no workspace");
-			return;
-		}
+	events.connect("workspaceChanged", logWhenCatch(() => {
+		if (_workspace === undefined) throw new MissingWorkspace;
 
 		const { entries, manualOrder } = _workspace;
 
 		addonList.remove_all();
 
 		manualOrder.forEach(key => {
-			if (_workspace === undefined) {
-				console.debug("Cannot update addon list when there is no workspace");
-				return;
-			}
+			if (_workspace === undefined) throw new MissingWorkspace;
 
 			const x = entries.find(y => y.name === key);
 
@@ -1060,7 +1227,8 @@ const createWindow = () => {
 				button.add_css_class("tag");
 				row.add_suffix(button);
 
-				_workspace.connect("changed::shuffle-choices", syncCreate((_, newVal) => {
+				if (_workspace === undefined) throw new MissingWorkspace;
+				_workspace._connect("changed::shuffle-choices", syncCreate((_, newVal) => {
 					const choice = newVal.get(shuffleGroup);
 					if (choice === undefined) return;
 					button.set_tooltip_text(`Last choice: ${choice}`);
@@ -1136,7 +1304,7 @@ const createWindow = () => {
 
 			addonList.append(row);
 		});
-	});
+	}));
 
 	const stoboColumnBuffer = new Gio.ListStore({ itemType: StoboColumnItem.$gtype });
 
@@ -1179,7 +1347,6 @@ const createWindow = () => {
 			});
 			label.set_ellipsize(Pango.EllipsizeMode.END);
 			box.append(label);
-			Object.assign(box, { label: new WeakRef(label) });
 			listItem.set_child(box);
 		});
 
@@ -1188,18 +1355,19 @@ const createWindow = () => {
 			const { child: widget, item: modelItem } = listItem;
 			if (!(widget instanceof Gtk.Box)) throw new Error;
 			(() => {
-				if (!("label" in widget) || !(widget.label instanceof WeakRef)) return;
-				const label = widget.label.deref();
-				if (label === undefined) return;
+				const label = widget.get_first_child();
+				if (!(label instanceof Gtk.Label)) throw new Error;
 				(() => {
-					if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
+					if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) throw new Error;
 					const item = modelItem.entry.deref();
-					if (typeof item !== "object" || item === null) return;
-					if (!("name" in item) || typeof item["name"] !== "string") return;
+					if (typeof item !== "object" || item === null) throw new Error;
+					if (!("name" in item) || typeof item["name"] !== "string") throw new Error;
 					label.set_label(item["name"]);
 					(() => {
-						if (!("enabled" in item) || typeof item["enabled"] !== "boolean") return;
-						if (item["enabled"]) widget.add_css_class("dim-label");
+						if (!("enabled" in item) || typeof item["enabled"] !== "boolean") {
+							return;
+						}
+						if (!item["enabled"]) widget.add_css_class("dim-label");
 					})();
 					(() => {
 						if (!("note" in item) || typeof item["note"] !== "string") return true;
@@ -1215,6 +1383,7 @@ const createWindow = () => {
 		factory.connect("unbind", (_self, listItem) => {
 			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
 			const { child: widget, item: modelItem } = listItem;
+			widget.remove_css_class("dim-label");
 			if (!(widget instanceof Gtk.Box)) throw new Error;
 			(() => {
 				if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
@@ -1285,51 +1454,17 @@ const createWindow = () => {
 		model: stoboColumnBuffer
 	});
 
-	const stoboColumnView = builder.get_object("stobo_column_view", Gtk.ColumnView);
-
-	stoboColumnView.set_model(stoboColumnSelection);
-
-	stoboColumnView.connect("activate", (_, position) => {
-		const modelItem = stoboColumnBuffer.get_item(position);
-		if (modelItem === null) return;
-		if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
-		const x = modelItem.entry.deref();
-		if (x === undefined) return;
-		if (!("archive" in x) || !(x["archive"] instanceof Gio.File)) return;
-		const { archive: file } = x;
-		const alwaysAsk = true;
-		(new Gtk.FileLauncher({
-			file,
-			alwaysAsk
-		})).launch(window, null);
-
-		return;
-		const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(AddonControls.substring(11)));
-		// @ts-expect-error libadwaita 1.5 typelib not available yet
-		const dialog = builder.get_object("window", Adw.Dialog);
-		useFile(dialog, builder, window);
-		(() => {
-			if (!("name" in x) || typeof x.name !== "string") return;
-			const title = builder.get_object("title", Adw.WindowTitle);
-			title.set_title(x.name);
-		})();
-		(() => {
-			if (!("archive" in x) || !(x["archive"] instanceof Gio.File)) return;
-			const path = x.archive.get_path();
-			if (path === null) return;
-			const showArchiveButton = builder.get_object("show_archive_button", Gtk.Button);
-			showArchiveButton.set_action_target_value(GLib.Variant.new_tuple([GLib.Variant.new_string(path)]));
-			showArchiveButton.connect_after("clicked", () => {
-				dialog.close();
-			});
-		})();
-		dialog.present(window);
-	});
+	const stoboColumnView = StoboColumnView(
+		builder,
+		stoboColumnSelection,
+		stoboColumnBuffer,
+		window,
+		() => _workspace
+	);
 
 	const contextMenu = (() => {
 		const object = new Gtk.PopoverMenu;
 		object.set_has_arrow(false);
-		object.set_size_request(-1, 200);
 		return object;
 	})();
 
@@ -1347,15 +1482,14 @@ const createWindow = () => {
 		const menu = (() => {
 			const menu = new Gio.Menu;
 
-			if (!isNaN(sourceIndex)) {
-				menu.append_submenu(_("Move to Index..."), (() => {
+			!isNaN(sourceIndex) && menu.append_submenu(_("Move to Index..."), (() => {
 					const menu = new Gio.Menu;
 
 					const widgetPlaceholder = new Gio.MenuItem;
 					widgetPlaceholder.set_attribute_value("custom", GLib.Variant.new_string("move-to-index-widget"));
 					customWidgets["move-to-index-widget"] = () => {
 						const container = new Adw.Clamp;
-						container.set_maximum_size(120);
+						container.set_maximum_size(60);
 						container.set_margin_top(12);
 						container.set_margin_bottom(12);
 
@@ -1405,93 +1539,14 @@ const createWindow = () => {
 
 					return menu;
 				})());
-			}
 
-			menu.append_submenu(_("Move to named row..."), (() => {
-				const menu = new Gio.Menu;
-
-				const widgetPlaceholder = new Gio.MenuItem;
-				widgetPlaceholder.set_attribute_value("custom", GLib.Variant.new_string("move-to-named-widget"));
-				customWidgets["move-to-named-widget"] = () => {
-					const widget = new DocumentChooser;
-					const recently_opened_documents = (() => {
-						const store = new Gio.ListStore({ itemType: DocumentEntry.$gtype });
-						(() => {
-							if (_workspace === undefined) return;
-							const { manualOrder } = _workspace;
-							for (const x of manualOrder) {
-								store.append(new DocumentEntry(x));
-							}
-						})();
-						return store;
-					})();
-					widget.factory.connect("bind", (_obj, listitem) => {
-						if (!(listitem instanceof Gtk.ListItem)) throw new Error;
-						const child = listitem.get_child();
-						if (!(child instanceof DocumentRow)) throw new Error;
-						const item = listitem.get_item();
-						if (!(item instanceof DocumentEntry)) throw new Error;
-						child.file_name.set_label(item.name);
-					});
-					widget.search_entry.connect("changed", (_obj) => {
-						filter.changed(Gtk.FilterChange.DIFFERENT);
-					});
-					recently_opened_documents.bind_property_full(
-						"n-items",
-						widget.search_entry,
-						"sensitive",
-						GObject.BindingFlags.SYNC_CREATE,
-						(_obj, from) => {
-							if (from === 0) return [true, false];
-							return [true, true];
-						},
-						T_CLOSURE_NONE,
-					);
-					const filter = Gtk.CustomFilter.new((item) => {
-						if (!(item instanceof DocumentEntry)) return false;
-						const path = item.name;
-						if (path.includes(widget.search_entry.get_text())) return true;
-						return false;
-					});
-					const model = new Gtk.FilterListModel({
-						model: recently_opened_documents,
-						filter,
-					});
-					model.connect("notify::n-items", syncCreate((obj) => {
-						const n = obj.get_n_items();
-						if (recently_opened_documents.get_n_items() <= 0) return;
-						if (n <= 0) {
-							widget.set_visible_child_name("noresult");
-						} else {
-							widget.set_visible_child_name("mainpage");
-						}
-					}, model));
-					widget.list.set_model(new Gtk.NoSelection({ model }));
-					widget.list.connect("activate", (_, targetIndex) => {
-						return;
-						if (_workspace === undefined) throw new Error;
-						const item = widget.list.get_model()?.get_item(targetIndex) || null;
-						if (item === null) throw new Error;
-						if (!(item instanceof DocumentEntry)) throw new Error;
-						const value = addonList.get_row_at_index(idx);
-						if (value === null) throw new Error;
-						if (!("srcName" in value) || typeof value["srcName"] !== "string") throw new Error;
-						addonList.remove(value);
-						stoboColumnBuffer.remove(idx);
-						addonList.insert(value, targetIndex);
-						stoboColumnBuffer.insert(targetIndex, modelItem);
-						_workspace.requestChangeManualOrder({
-							type: "move",
-							src: value["srcName"],
-							target: modelItem.entryName,
-						});
-					});
-					return widget;
-				};
-				menu.append_item(widgetPlaceholder);
-
-				return menu;
+			menu.append_item((() => {
+				const x = new Gio.MenuItem;
+				x.set_label(_("Properties"));
+				x.set_action_and_target_value("workspace.show-properties", GLib.Variant.new_int32(sourceIndex));
+				return x;
 			})());
+
 
 			return menu;
 		})();
@@ -1529,14 +1584,11 @@ const createWindow = () => {
 			if (nPress !== 1) {
 				return;
 			}
-			console.log("y is", y);
-			console.log("height is", stoboColumnView.get_height());
 
 			const idx = Math.round(((y - 35) / (stoboColumnView.get_height() - 35)) * (stoboColumnBuffer.get_n_items() - 1));
 
 			stoboColumnSelection.set_selected(idx);
 
-			console.log("idx is", idx);
 			if (idx < 0 || idx >= stoboColumnBuffer.get_n_items()) {
 				throw new Error("impossible idx " + idx);
 				return;
@@ -1544,7 +1596,6 @@ const createWindow = () => {
 
 			const modelItem = stoboColumnBuffer.get_item(idx);
 			if (modelItem === null) {
-				console.log("item is null");
 				return;
 			}
 
@@ -1579,11 +1630,8 @@ const createWindow = () => {
 	});
 	window.add_controller(windowRightClick);
 
-	events.connect("workspaceChanged", () => {
-		if (_workspace === undefined) {
-			console.debug("Cannot update matcher list when there is no workspace");
-			return;
-		}
+	events.connect("workspaceChanged", logWhenCatch(() => {
+		if (_workspace === undefined) throw new MissingWorkspace;
 
 		const { entries, manualOrder } = _workspace;
 
@@ -1603,15 +1651,12 @@ const createWindow = () => {
 				x => x !== null);
 
 		stoboColumnBuffer.splice(0, stoboColumnBuffer.get_n_items(), newItems);
-	});
+	}));
 
 	const matcherList = builder.get_object("matcher_list", Gtk.ListBox);
 
-	events.connect("workspaceChanged", () => {
-		if (_workspace === undefined) {
-			console.debug("Cannot update matcher list when there is no workspace");
-			return;
-		}
+	events.connect("workspaceChanged", logWhenCatch(() => {
+		if (_workspace === undefined) throw new MissingWorkspace;
 
 		const { entries } = _workspace;
 
@@ -1634,7 +1679,7 @@ const createWindow = () => {
 
 			matcherList.append(row);
 		});
-	});
+	}));
 
 	(/** @type {Gtk.Window} */ (window)).connect("close-request", () => {
 		popover.unparent();
@@ -1648,19 +1693,74 @@ const createWindow = () => {
 		stoboProfileBar.primaryButton.activate_action("headerbox.reveal", null);
 	});
 
-	events.connect("workspaceChanged", () => {
-		if (_workspace === undefined) {
-			console.warn("Cannot explore the root workspace folder when there is no workspace");
-			return;
+	let useLastBuild = NaN;
+
+	events.connect("workspaceChanged", nowait(async () => {
+		if (_workspace === undefined) throw new MissingWorkspace;
+		const { root, entries, lastBuild, _connect, _disconnect } = _workspace;
+		if (!isNaN(useLastBuild)) {
+			_disconnect(useLastBuild);
 		}
-		const { root, manualOrder } = _workspace;
+		useLastBuild = _connect("changed::last-build", syncCreate((_, newval) => {
+			stoboProfile.updateBuildInfo(newval === null ? null : { lastBuild: newval });
+		}, null, lastBuild));
 		const name = root.get_basename();
 		if (name === null) return;
 		stoboProfileBar.label.set_label(name);
-		stoboProfile.configure(name, manualOrder.length);
-	});
+		stoboProfile.configure(name, entries.length, await measureDiskUsage(root));
+	}));
 
 	const workspaceActions = new Gio.SimpleActionGroup();
+
+	const showProperties = new Gio.SimpleAction({
+		name: "show-properties",
+		parameterType: GLib.VariantType.new("i"),
+	});
+
+	showProperties.connect("activate", logWhenCatch((_, parameter) => {
+		if (_workspace === undefined) throw new MissingWorkspace;
+		const { entries, manualOrder } = _workspace;
+
+		if (parameter === null) throw new Error;
+		const index = parameter.get_int32();
+
+		const x = (() => {
+			const name = manualOrder[index];
+			if (name === undefined) return null;
+			const item = entries.find(x => {
+				return x.name === name;
+			});
+			if (item === undefined) return null;
+			return item;
+		})();
+
+		if (x === null) throw new Error;
+
+		const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(AddonControls.substring(11)));
+		// @ts-expect-error libadwaita 1.5 typelib not available yet
+		const dialog = builder.get_object("window", Adw.Dialog);
+		useFile(dialog, builder, window);
+		(() => {
+			if (!("name" in x) || typeof x.name !== "string") return;
+			const title = builder.get_object("title", Adw.WindowTitle);
+			title.set_title(x.name);
+		})();
+		(() => {
+			if (!("archive" in x) || !(x["archive"] instanceof Gio.File)) return;
+			const path = x.archive.get_path();
+			if (path === null) return;
+			const showArchiveButton = builder.get_object("show_archive_button", Gtk.Button);
+			showArchiveButton.set_action_target_value(GLib.Variant.new_tuple([GLib.Variant.new_string(path)]));
+			showArchiveButton.connect_after("clicked", () => {
+				dialog.close();
+			});
+		})();
+		dialog.present(window);
+
+		return;
+	}));
+
+	workspaceActions.add_action(showProperties);
 
 	const addAddon = new Gio.SimpleAction({
 		name: "add-addon",
@@ -1668,6 +1768,7 @@ const createWindow = () => {
 
 	addAddon.connect("activate", () => {
 		const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(add.substring(11)));
+		// @ts-expect-error
 		builder.set_current_object(builder.get_object("root", Adw.Dialog));
 		/**
 		 * @type {Adw.Window}
@@ -1735,6 +1836,7 @@ const createWindow = () => {
 </interface>`, "console.log('Wow!');");
 
 		stack.set_visible_child_name("content");
+		// @ts-expect-error
 		view.present(window);
 	});
 
@@ -1744,7 +1846,7 @@ const createWindow = () => {
 		name: "explore",
 	});
 
-	explore.connect("activate", () => {
+	explore.connect("activate", nowait(async () => {
 		if (_workspace === undefined) {
 			console.warn("Cannot explore the root workspace folder when there is no workspace");
 			return;
@@ -1752,10 +1854,9 @@ const createWindow = () => {
 		const { root } = _workspace;
 
 		const launcher = Gtk.FileLauncher.new(root);
-		(async () => {
-			await launcher.launch(window, null);
-		})().catch(logError);
-	});
+
+		await launcher.launch(window, null);
+	}));
 
 	workspaceActions.add_action(explore);
 
@@ -1777,7 +1878,7 @@ const createWindow = () => {
 		const path = _recentWorkspaces[0];
 		if (path === undefined) throw new Error;
 		const file = Gio.File.new_for_path(makeCanonicalPath(path));
-		updateWorkspace(file);
+		updateWorkspace(folderStack, { setWorkspace })(file);
 	});
 
 	workspaceActions.add_action(restore);
@@ -1786,13 +1887,11 @@ const createWindow = () => {
 		name: "reload",
 	});
 
-	reload.connect("activate", () => {
-		if (_workspace === undefined) {
-			console.warn("Cannot reload when there is no workspace");
-			return;
-		}
-		updateWorkspace(_workspace.root);
-	});
+	reload.connect("activate", logWhenCatch(() => {
+		if (_workspace === undefined) throw new MissingWorkspace;
+		const { root } = _workspace;
+		updateWorkspace(folderStack, { setWorkspace })(root);
+	}));
 
 	workspaceActions.add_action(reload);
 
@@ -1800,13 +1899,11 @@ const createWindow = () => {
 		name: "export",
 	});
 
-	exportList.connect("activate", () => {
-		if (_workspace === undefined) {
-			console.debug("Could not export when there is no workspace");
-			return;
-		}
-		exportAsList(_workspace).catch(logError);
-	});
+	exportList.connect("activate", logWhenCatch(() => {
+		if (_workspace === undefined) throw new MissingWorkspace;
+		const { root, entries } = _workspace;
+		exportAsList(root, { entries }).catch(logError);
+	}));
 
 	workspaceActions.add_action(exportList);
 
@@ -1821,7 +1918,7 @@ const createWindow = () => {
 		const [path] = parameter.get_string();
 		if (path === null) throw new Error;
 		const file = Gio.File.new_for_path(path);
-		updateWorkspace(file);
+		updateWorkspace(folderStack, { setWorkspace })(file);
 	});
 
 	events.connect("workspaceChanged", () => {
@@ -1921,24 +2018,34 @@ const createWindow = () => {
 
 	application.set_accels_for_action("workspace.add", ["<Primary>O"]);
 
+	const ScreenSizeViewstack = builder.get_object("screen_size_viewstack", Gtk.Stack);
+
 	const headerboxActions = new Gio.SimpleActionGroup();
 
-	let nextReveal = false;
-
-	const headerbox_reveal = new Gio.SimpleAction({
+	const headerbox_reveal = Object.assign(new Gio.SimpleAction({
 		name: "reveal",
+	}), {
+		nextReveal: false,
+		stoboNextReveal: false,
 	});
 
 	headerbox_reveal.connect("activate", (_action) => {
-		nextReveal = !nextReveal;
-		if (nextReveal) {
-			headerbox.revealChild();
-			profileBar.primaryButton.set_active(true);
-			stoboProfile.set_reveal(true);
+		if (ScreenSizeViewstack.get_visible_child_name() === "roboken") {
+			headerbox_reveal.nextReveal = !headerbox_reveal.nextReveal;
+			if (headerbox_reveal.nextReveal) {
+				headerbox.revealChild();
+				profileBar.primaryButton.set_active(true);
+			} else {
+				headerbox.unrevealChild();
+				profileBar.primaryButton.set_active(false);
+			}
 		} else {
-			headerbox.unrevealChild();
-			profileBar.primaryButton.set_active(false);
-			stoboProfile.set_reveal(false);
+			headerbox_reveal.stoboNextReveal = !headerbox_reveal.stoboNextReveal;
+			if (headerbox_reveal.stoboNextReveal) {
+				stoboProfile.set_reveal(true);
+			} else {
+				stoboProfile.set_reveal(false);
+			}
 		}
 	});
 
@@ -1983,66 +2090,28 @@ const createWindow = () => {
 		},
 	});
 
-	inject.connect("activate", () => {
-		if (_workspace === undefined) {
-			console.debug("Could not inject when there is no workspace");
-			return;
-		}
+	inject.connect("activate", nowait(async () => {
+		if (_workspace === undefined) throw new MissingWorkspace;
+
+		const { root, entries, shuffleChoices: previousShuffleChoices, requestSaveShuffleChoices, setLastBuild } = _workspace;
 
 		const cancellable = new Gio.Cancellable;
-
-		(async () => {
-			await cleanup(cancellable);
-			const { root, entries, shuffleChoices: previousShuffleChoices, requestSaveShuffleChoices } = _workspace;
-			const { files: archives, shuffleChoices } = filter(entries, previousShuffleChoices);
-			requestSaveShuffleChoices(shuffleChoices);
-			await link(root, archives, {
-				addLine(line) {
-					console.debug("linking-log:", line);
-				}
-			}, cancellable);
-			profileBar.toast("LJWsdf");
-			stoboProfileBar.toast("LJWsdf");
-			stoboHeaderbar.flashes().catch(logError);
-		})().catch(logError);
-	});
+		await cleanup(cancellable);
+		const { files: archives, shuffleChoices } = filter(entries, previousShuffleChoices);
+		requestSaveShuffleChoices(shuffleChoices);
+		await link(root, archives, {
+			addLine(line) {
+				console.debug("linking-log:", line);
+			}
+		}, cancellable);
+		setLastBuild(new Date);
+		profileBar.toast("LJWsdf");
+		stoboProfileBar.toast("LJWsdf");
+	}));
 
 	injectActions.add_action(inject);
 
 	window.insert_action_group("inject", injectActions);
-
-	/**
-	 * @type {ReturnType<typeof createMatcherWindow>?}
-	 */
-	let matcherWindow = null;
-
-	const showMatcher = new Gio.SimpleAction({
-		name: "show-matcher",
-		parameterType: GLib.VariantType.new("s")
-	});
-
-	showMatcher.connect("activate", (_, parameter) => {
-		if (parameter === null) throw new Error;
-
-		const [parameterJs] = parameter.get_string();
-
-		if (matcherWindow === null) {
-			const newWindow = createMatcherWindow.apply(window);
-
-			newWindow.connect("close-request", () => {
-				matcherWindow = null;
-				return false;
-			});
-
-			matcherWindow = newWindow;
-		}
-
-		matcherWindow.updateTarget(parameterJs);
-
-		matcherWindow.present();
-	});
-
-	window.add_action(showMatcher);
 
 	addError({
 		short: _("Work-in-progress"),
@@ -2079,37 +2148,6 @@ const createPreferences = () => {
 	window.insert_action_group("preferences", actions);
 
 	return window;
-};
-
-/**
- * @this Gtk.Window
- */
-function createMatcherWindow() {
-	const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(Matcher.substr(11)));
-
-	/**
-	 * @type {{} & Signal<"targetChanged", []> & SharedSignalMethods}
-	 */
-	const events = addSignalMethods();
-
-	const window = builder.get_object("window", Gtk.Window);
-
-	window.set_transient_for(this);
-
-	/**
-	 * @param {string} val
-	 */
-	const updateTarget = (val) => {
-
-	};
-
-	const actions = new Gio.SimpleActionGroup;
-
-	window.insert_action_group("matcher", actions);
-
-	return Object.assign(window, {
-		updateTarget,
-	});
 };
 
 /**

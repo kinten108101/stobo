@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=@APPNAME@
+Icon=@APPID@
+Categories=GTK;
+# Translators: Search terms to find this application. Do NOT translate or localize the semicolons! The list MUST also end with a semicolon!
+Keywords=GTK;Application;
+Exec=@APPNAME@ %U
+DBusActivatable=true
+StartupNotify=true

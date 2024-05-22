@@ -34,6 +34,7 @@
 		"node_modules/@girs/gjs/dom.d.ts",
 		"src/**/*.js",
 		"src/**/*.js.in",
-		"src/ambient.d.ts"
+		"src/ambient.d.ts",
+		"src/typing.d.ts"
 	]
 }

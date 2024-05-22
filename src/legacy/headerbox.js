@@ -265,6 +265,38 @@ const ConsoleBox = (builder) => {
 };
 
 /**
+ * @template {object} T
+ * @param {string[]} classes
+ * @param {string} style
+ * @param {T} style_options
+ */
+function pick(classes, style, style_options) {
+	const css = new Set(classes);
+	for (const x in style_options) {
+		if ((/** @type {{ [key: string]: string }} */(style_options))[x] === style) {
+			css.add(style);
+			continue;
+		}
+		css.delete(x);
+	}
+	/**
+	 * @param {Set<any>} set
+	 */
+	function set2arr(set) {
+		/**
+		 * @type any[]
+		 */
+		const arr = [];
+		set.forEach(x => {
+			arr.push(x);
+		});
+		return arr;
+	}
+	const _classes = set2arr(css);
+	return _classes;
+}
+
+/**
  * @param {ReturnType<typeof import("./lib/builder").default>} builder
  *
  * @deprecated
@@ -458,35 +490,6 @@ const HeaderBox = (builder) => {
 			error: "error-symbolic",
 			question_round: "question-round-symbolic",
 		};
-		/**
-		 * @param {string[]} classes
-		 * @param {string} style
-		 */
-		function pick(classes, style) {
-			const css = new Set(classes);
-			for (const x in style_options) {
-				if ((/** @type {{ [key: string]: string }} */(style_options))[x] === style) {
-					css.add(style);
-					continue;
-				}
-				css.delete(x);
-			}
-			/**
-			 * @param {Set<any>} set
-			 */
-			function set2arr(set) {
-				/**
-				 * @type any[]
-				 */
-				const arr = [];
-				set.forEach(x => {
-					arr.push(x);
-				});
-				return arr;
-			}
-			const _classes = set2arr(css);
-			return _classes;
-		}
 		const [style, icon_name] = (() => {
 			switch (statusType) {
 			case "error":
@@ -502,11 +505,11 @@ const HeaderBox = (builder) => {
 			}
 		})();
 		buttonStatus.set_css_classes(
-			pick(buttonStatus.cssClasses, style)
+			pick(buttonStatus.cssClasses, style, style_options)
 		);
 		buttonStatus.set_icon_name(icon_name);
 		statusBox.set_css_classes(
-			pick(statusBox.cssClasses, style)
+			pick(statusBox.cssClasses, style, style_options)
 		);
 	};
 

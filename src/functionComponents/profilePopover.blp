@@ -66,8 +66,7 @@ Popover root {
 				}
 			}
 
-			Label {
-				label: "52MB";
+			Label disk_usage {
 				halign: start;
 				xalign: 0;
 				wrap: false;
@@ -75,6 +74,35 @@ Popover root {
 
 				layout {
 					row: 1;
+					column: 1;
+					width: 1;
+					height: 1;
+				}
+			}
+
+			Label {
+				label: _("Last build");
+
+				halign: end;
+				styles ["dim-label"]
+
+				layout {
+					row: 2;
+					column: 0;
+					width: 1;
+					height: 1;
+				}
+			}
+
+			Label last_build {
+				label: "52MB";
+				halign: start;
+				xalign: 0;
+				wrap: false;
+				ellipsize: end;
+
+				layout {
+					row: 2;
 					column: 1;
 					width: 1;
 					height: 1;
