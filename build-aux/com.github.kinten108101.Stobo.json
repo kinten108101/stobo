@@ -26,7 +26,6 @@
 	"modules": [
 		"modules/blueprint-compiler.json",
 		{
-			"name": "Workbench",
 			"buildsystem": "meson",
 			"sources": [
 				{
@@ -34,6 +33,7 @@
 					"path": ".."
 				}
 			]
+			"name": "Stobo",
 		}
 	]
 }
