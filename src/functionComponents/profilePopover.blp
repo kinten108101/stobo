@@ -1,0 +1,85 @@
+using Gtk 4.0;
+using Adw 1;
+
+Popover root {
+	width-request: 300;
+
+	Box {
+		orientation: vertical;
+		margin-top: 8;
+		margin-bottom: 8;
+		margin-start: 8;
+		margin-end: 8;
+		spacing: 8;
+
+		Label title {
+			halign: start;
+			xalign: 0;
+			wrap: false;
+			ellipsize: end;
+
+			styles ["font-bold"]
+		}
+
+		Grid {
+			column-spacing: 8;
+
+			Label {
+				label: _("Total Add-ons");
+
+				halign: end;
+				styles ["dim-label"]
+
+				layout {
+					row: 0;
+					column: 0;
+					width: 1;
+					height: 1;
+				}
+			}
+
+			Label total_addons {
+				halign: start;
+				xalign: 0;
+				wrap: false;
+				ellipsize: end;
+
+				layout {
+					row: 0;
+					column: 1;
+					width: 1;
+					height: 1;
+				}
+			}
+
+			Label {
+				label: _("Disk Usage");
+
+				halign: end;
+				styles ["dim-label"]
+
+				layout {
+					row: 1;
+					column: 0;
+					width: 1;
+					height: 1;
+				}
+			}
+
+			Label {
+				label: "52MB";
+				halign: start;
+				xalign: 0;
+				wrap: false;
+				ellipsize: end;
+
+				layout {
+					row: 1;
+					column: 1;
+					width: 1;
+					height: 1;
+				}
+			}
+		}
+	}
+}

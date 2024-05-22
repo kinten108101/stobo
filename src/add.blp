@@ -1,0 +1,19 @@
+using Gtk 4.0;
+using Adw 1;
+
+Adw.Dialog root {
+	Stack {
+		StackPage {
+			name: "empty";
+			child: Adw.StatusPage {
+				title: "Unavailable";
+				description: "No add-on downloader installed";
+			};
+		}
+
+		StackPage {
+			name: "content";
+			child: $Embed {};
+		}
+	}
+}

@@ -125,93 +125,25 @@ Adw.ApplicationWindow window {
 							child:
 								Gtk.Overlay {
 									child:
-										Gtk.Box {
-											styles ["bg-headerbar"]
+										Box content_overlay {
+											name: "stobo";
 											orientation: vertical;
+											styles ["bg-window", "border-bottom-headerbar-shade", "rounded-[12px]"]
 
-											Box {
-												valign: fill;
-												vexpand: true;
+											Adw.HeaderBar {
+												// fake headerbar
 											}
 
-											Box {
-												name: "status-bar";
-												styles ["bg-headerbar"]
-												valign: end;
-												height-request: 36;
-
-												Box {
-													halign: start;
-												}
-
-												Box {
+											Adw.ToastOverlay {
+												Gtk.ScrolledWindow {
+													hscrollbar-policy: never;
+													vscrollbar-policy: automatic;
 													hexpand: true;
-												}
-
-												Box {
-													halign: end;
-
-													Gtk.Button {
-														action-name: "workspace.toggle-console";
-
-														Gtk.Box {
-															orientation: vertical;
-
-															Gtk.Box {
-																height-request: 12;
-															}
-
-															Gtk.Image {
-																icon-name: "dock-bottom-symbolic";
-															}
-														}
-													}
-												}
-											}
-										};
-
-									[overlay]
-									Box {
-										orientation: vertical;
-										margin-bottom: 28;
-
-										Box {
-											valign: fill;
-											vexpand: true;
-										}
-
-										Box bottom_console_box {
-											styles ["bg-view", "border-bottom-headerbar-shade", "rounded-[12px]"]
-											valign: end;
-											height-request: 12;
-										}
-									}
-
-									[overlay]
-									Box content_overlay {
-										name: "stobo";
-										orientation: vertical;
-										styles ["bg-window", "border-bottom-headerbar-shade", "rounded-[12px]"]
-										margin-bottom: 28;
-
-										Adw.HeaderBar {
-											// fake headerbar
-										}
-
-										Adw.ToastOverlay {
-											Gtk.ScrolledWindow {
-												hscrollbar-policy: never;
-												vscrollbar-policy: automatic;
-												hexpand: true;
-												vexpand: true;
-
-												Gtk.Box {
-													orientation: vertical;
 													vexpand: true;
 
 													ColumnView stobo_column_view {
+														valign: start;
 														styles ["py-[1px]", "bg-transparent"]
-														margin-bottom: 32;
 
 														ColumnViewColumn stobo_column_0 {
 															title: _("#");
@@ -220,8 +152,14 @@ Adw.ApplicationWindow window {
 														}
 
 														ColumnViewColumn stobo_column_2 {
-															title: _("Identification");
+															title: _("Name");
 															expand: true;
+															factory: SignalListItemFactory {};
+														}
+
+														ColumnViewColumn stobo_column_shuffle_group {
+															title: _("Group");
+															fixed-width: 100;
 															factory: SignalListItemFactory {};
 														}
 
@@ -229,38 +167,48 @@ Adw.ApplicationWindow window {
 															fixed-width: 48;
 															factory: SignalListItemFactory {};
 														}
-
 													}
 												}
 											}
-										}
-									}
+										};
 
 									[overlay]
-									Adw.HeaderBar {
+									Gtk.Box {
+										orientation: vertical;
 										valign: start;
-										show-title: false;
-										decoration-layout: "icons:minimize,close";
 
-										[start]
-										Button {
-											icon-name: "plus-large-symbolic";
+										Adw.HeaderBar stobo_headerbar {
+											show-title: false;
+											decoration-layout: "icons:minimize,close";
+
+											[start]
+											Button {
+												icon-name: "plus-large-symbolic";
+												action-name: "workspace.add-addon";
+											}
+
+											[start]
+											$ProfileBar stobo_profile_bar {
+												has-arrow: true;
+											}
+
+											[start]
+											Adw.SplitButton {
+												visible: true;
+												styles ["thin-button"]
+												action-name: "inject.inject";
+												icon-name: "play-symbolic";
+												popover: PopoverMenu {
+													menu-model: primary_menu;
+												};
+											}
 										}
 
-										[start]
-										$ProfileBar stobo_profile_bar {
-											has-arrow: true;
-										}
-
-										[start]
-										Adw.SplitButton {
-											visible: true;
-											styles ["thin-button"]
-											action-name: "inject.inject";
-											icon-name: "play-symbolic";
-											popover: PopoverMenu {
-												menu-model: primary_menu;
-											};
+										Adw.Banner stobo_banner {
+											revealed: false;
+											title: _("Files on disk have changed");
+											button-label: _("Reload");
+											action-name: "workspace.reload";
 										}
 									}
 								};

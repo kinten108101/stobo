@@ -3,8 +3,6 @@ import GObject from "gi://GObject";
 import Gio from "gi://Gio";
 import Gdk from "gi://Gdk";
 import Gtk from "gi://Gtk";
-import Gsk from "gi://Gsk";
-import Graphene from "gi://Graphene";
 import Pango from "gi://Pango";
 import Adw from "gi://Adw";
 import { gettext as _ } from "gettext";
@@ -13,6 +11,7 @@ import extendBuilder from "./lib/builder.js";
 import { syncCreate } from "./lib/functional.js";
 import { addError } from "./services/status.js";
 import Window from "./window.blp" with { type: "uri" };
+import add from "./add.blp" with { type: "uri" };
 import AddonDetails from "./addonDetails.blp" with { type: "uri" };
 import AddonControls from "./addonControls.blp" with { type: "uri" };
 import Preferences from "./preferences.blp" with { type: "uri" };
@@ -26,6 +25,11 @@ import { addSignalMethods } from "./lib/signals.js";
 import { StoboColumnItem } from "./classes/stoboColumn.js";
 import ProfileBar from "./classes/profileBar.js";
 import StoboProfile from "./functionComponents/stoboProfile.js";
+import delayMs from "./lib/delayMs.js";
+import DocumentChooser, { DocumentEntry, DocumentRow } from "./classes/documentChooser.js";
+import Embed from "./classes/embed.js";
+
+const T_CLOSURE_NONE = /** @type {GObject.TClosure} */(/** @type {unknown} */(null));
 
 /**
  * @typedef {(signal: string, cb: (...args: any[]) => void) => number} ConnectMethod
@@ -63,24 +67,29 @@ var Stobo = {
 		 * @experimental
 		 */
 		assign: (src, props) => {
+			// @ts-expect-error WTF
 			return Object.assign(src, props(src));
 		},
 	}
 };
 
-/**
- * @param {Gtk.Widget} widget
- * @param {number} x
- * @param {number} y
- */
-function moveWidget(widget, x, y) {
-	let transform = new Gsk.Transform();
-	// @ts-expect-error stock code
-	const p = new Graphene.Point({ x: x, y: y });
-	// @ts-expect-error stock code
-	transform = transform.translate(p);
-	widget.allocate(widget.get_width(), widget.get_height(), -1, transform);
-}
+const AdwCallbackAnimationTarget = new Proxy(class extends Adw.CallbackAnimationTarget {
+	/**
+	 * @param {{ callback: (value: number) => void }} _args
+	 */
+	// @ts-expect-error
+	constructor(_args) {}
+}, {
+	/**
+	 * @param {[{ callback: (value: number) => void }]} argsArray
+	 */
+	construct(_target, argsArray, _newTarget) {
+		const [params] = argsArray;
+		const { callback } = params;
+		// @ts-expect-error
+		return Adw.CallbackAnimationTarget.new(callback);
+	},
+});
 
 const application = new Adw.Application({
 	applicationId: pkg.name,
@@ -140,9 +149,10 @@ const cleanup = async (cancellable) => {
 /**
  * @param {Gio.File} root
  * @param {Gio.File[]} archives
+ * @param {{ addLine(line: string): void; }} updateSuite
  * @param {Gio.Cancellable | null} cancellable
  */
-const link = async (root, archives, cancellable) => {
+const link = async (root, archives, { addLine }, cancellable) => {
 	const preGameDir = settings.get_string("game-dir");
 	const gameDir = Gio.File.new_for_path(makeCanonicalPath(preGameDir));
 	const destDir = getDestinationDir(gameDir);
@@ -151,6 +161,7 @@ const link = async (root, archives, cancellable) => {
 		const x = archives[_index];
 		if (x === undefined) continue;
 		if (await isDirAsync(x)) {
+			addLine(`Discovered that ${x.get_basename()} is a folder`);
 			const subarchives = (await listFileAsync(x)).filter(x => {
 				const path = x.get_path();
 				if (path === null) return false;
@@ -159,7 +170,8 @@ const link = async (root, archives, cancellable) => {
 			for (const subindex in subarchives) {
 				const y = subarchives[subindex];
 				if (y === undefined) continue;
-				const dest = destDir.get_child(`${index++}@stvpk.vpk`);
+				const destName = `${index++}@stvpk.vpk`;
+				const dest = destDir.get_child(destName);
 				const symlinkValue = y.get_path();
 				if (symlinkValue === null) {
 					console.warn("source-path-missing");
@@ -167,13 +179,15 @@ const link = async (root, archives, cancellable) => {
 				}
 				try {
 					await dest.make_symbolic_link_async(symlinkValue, GLib.PRIORITY_DEFAULT, cancellable);
+					addLine(`Linked ${x.get_basename()}/${y.get_basename()} as ${destName}`);
 				} catch (error) {
 					logError(error);
 					continue;
 				}
 			}
 		} else {
-			const dest = destDir.get_child(`${index++}@stvpk.vpk`);
+			const destName = `${index++}@stvpk.vpk`;
+			const dest = destDir.get_child(destName);
 			const symlinkValue = x.get_path();
 			if (symlinkValue === null) {
 				console.warn("source-path-missing");
@@ -181,6 +195,7 @@ const link = async (root, archives, cancellable) => {
 			}
 			try {
 				await dest.make_symbolic_link_async(symlinkValue, GLib.PRIORITY_DEFAULT, cancellable);
+				addLine(`Linked ${x.get_basename()} as ${destName}`);
 			} catch (error) {
 				logError(error);
 				continue;
@@ -265,36 +280,6 @@ const filter = (entries, previousShuffleChoices) => {
 };
 
 const xattrNamespace = "user.stobo";
-
-/**
- * @param {Gio.File} file
- * @param {string} attr
- */
-const getExtendedAttributeValueFromFile = async (file, attr) => {
-	const path = file.get_path();
-	if (path === null) return null;
-	const process = Gio.Subprocess.new([
-		"getfattr", "-n", attr, path
-	], Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
-
-	const [stdout] = await process.communicate_utf8_async(null, null);
-
-	if (process.get_successful() && stdout !== null) {
-		const lines = stdout.split("\n");
-		if (lines.length !== 4) throw new Error;
-		const contentLine = lines[1];
-		if (contentLine === undefined) throw new Error;
-		const parts = contentLine.split("=");
-		if (parts.length !== 2) throw new Error;
-		let value = parts[1];
-		if (value === undefined) throw new Error;
-		if (value[0] === "\"") value = value.substring(1, value.length);
-		if (value[value.length - 1] === "\"") value = value.substring(0, value.length - 1);
-		return value;
-	} else {
-		return null;
-	}
-};
 
 /**
  * @param {Gio.File} file
@@ -867,6 +852,7 @@ const createWindow = () => {
 	bindStatusToHeaderboxSection(headerbox, { profileLabel: profileBar.label }, window);
 
 	const banner = builder.get_object("banner", Adw.Banner);
+	const stoboBanner = builder.get_object("stobo_banner", Adw.Banner);
 
 	events.connect("workspaceChanged", () => {
 		if (_workspace === undefined) {
@@ -875,9 +861,11 @@ const createWindow = () => {
 		}
 
 		banner.set_revealed(false);
+		stoboBanner.set_revealed(false);
 
 		_workspace.onFsChanged(() => {
 			banner.set_revealed(true);
+			stoboBanner.set_revealed(true);
 		});
 	});
 
@@ -1150,6 +1138,8 @@ const createWindow = () => {
 		});
 	});
 
+	const stoboColumnBuffer = new Gio.ListStore({ itemType: StoboColumnItem.$gtype });
+
 	(column => {
 		const factory = column.get_factory();
 
@@ -1158,7 +1148,6 @@ const createWindow = () => {
 		factory.connect("setup", (_self, listItem) => {
 			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
 			const label = new Gtk.Label();
-			//label.add_css_class("text-medium");
 			label.add_css_class("dim-label");
 			listItem.set_child(label);
 		});
@@ -1167,8 +1156,13 @@ const createWindow = () => {
 			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
 			const { child: widget, item: modelItem } = listItem;
 			if (!(widget instanceof Gtk.Label)) throw new Error;
-			if (!("position" in modelItem) || typeof modelItem.position !== "number") throw new Error;
-			widget.set_label(String(modelItem.position));
+			const idx = (() => {
+				const [found, idx] = stoboColumnBuffer.find(modelItem);
+				if (found) return idx;
+				else return NaN;
+			})();
+			if (isNaN(idx)) throw new Error;
+			widget.set_label(String(idx));
 		});
 	})(builder.get_object("stobo_column_0", Gtk.ColumnViewColumn));
 
@@ -1183,7 +1177,7 @@ const createWindow = () => {
 			const label = new Gtk.Label({
 				halign: Gtk.Align.START,
 			});
-			label.set_ellipsize(Pango.EllipsizeMode.MIDDLE);
+			label.set_ellipsize(Pango.EllipsizeMode.END);
 			box.append(label);
 			Object.assign(box, { label: new WeakRef(label) });
 			listItem.set_child(box);
@@ -1195,24 +1189,25 @@ const createWindow = () => {
 			if (!(widget instanceof Gtk.Box)) throw new Error;
 			(() => {
 				if (!("label" in widget) || !(widget.label instanceof WeakRef)) return;
-				const object = widget.label.deref();
-				if (object === undefined) return;
-				object.set_label(modelItem.entryName);
-			})();
-			(() => {
-				if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
-				const item = modelItem.entry.deref();
-				if (typeof item !== "object" || item === null) return;
+				const label = widget.label.deref();
+				if (label === undefined) return;
 				(() => {
-					if (!("enabled" in item) || typeof item.enabled !== "boolean") return;
-					if (item.enabled) widget.add_css_class("dim-label");
-				})();
-				(() => {
-					if (!("note" in item) || typeof item.note !== "string") return true;
-					widget.set_tooltip_text(item.note);
-					return false;
-				})() && (() => {
-					widget.set_tooltip_text(" ")
+					if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
+					const item = modelItem.entry.deref();
+					if (typeof item !== "object" || item === null) return;
+					if (!("name" in item) || typeof item["name"] !== "string") return;
+					label.set_label(item["name"]);
+					(() => {
+						if (!("enabled" in item) || typeof item["enabled"] !== "boolean") return;
+						if (item["enabled"]) widget.add_css_class("dim-label");
+					})();
+					(() => {
+						if (!("note" in item) || typeof item["note"] !== "string") return true;
+						widget.set_tooltip_text(`${item["name"]}\n\n${item["note"]}`);
+						return false;
+					})() && (() => {
+						widget.set_tooltip_text(item["name"])
+					})();
 				})();
 			})();
 		});
@@ -1226,14 +1221,50 @@ const createWindow = () => {
 				const item = modelItem.entry.deref();
 				if (typeof item !== "object" || item === null) return;
 				(() => {
-					if (!("name" in item) || typeof item.name !== "string") return;
-					widget.set_tooltip_text(" ");
+					if (!("name" in item) || typeof item["name"] !== "string") return;
+					widget.set_tooltip_text(item["name"]);
 				})();
 			})();
 		});
 	})(builder.get_object("stobo_column_2", Gtk.ColumnViewColumn));
 
+	(column => {
+		const factory = column.get_factory();
 
+		if (!(factory instanceof Gtk.SignalListItemFactory)) throw new Error;
+
+		factory.connect("setup", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const label = new Gtk.Label;
+			label.add_css_class("dim-label");
+			label.set_halign(Gtk.Align.START);
+			listItem.set_child(label);
+		});
+
+		factory.connect("bind", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const { child: widget, item: modelItem } = listItem;
+			if (!(widget instanceof Gtk.Label)) throw new Error;
+			(() => {
+				if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
+				const item = modelItem.entry.deref();
+				if (typeof item !== "object" || item === null) return;
+				(() => {
+					if (!("shuffleGroup" in item) || typeof item["shuffleGroup"] !== "string") return;
+					widget.set_label(item["shuffleGroup"]);
+					widget.set_tooltip_text(item["shuffleGroup"]);
+				})();
+			})();
+		});
+
+		factory.connect("unbind", (_self, listItem) => {
+			if (!(listItem instanceof Gtk.ListItem)) throw new Error;
+			const { child: widget } = listItem;
+			if (!(widget instanceof Gtk.Label)) throw new Error;
+			widget.set_label("");
+			widget.set_tooltip_text("");
+		});
+	})(builder.get_object("stobo_column_shuffle_group", Gtk.ColumnViewColumn));
 
 	(column => {
 		const factory = column.get_factory();
@@ -1250,13 +1281,11 @@ const createWindow = () => {
 		});
 	})(builder.get_object("stobo_column_3", Gtk.ColumnViewColumn));
 
-	const stoboColumnView = builder.get_object("stobo_column_view", Gtk.ColumnView);
-
-	const stoboColumnBuffer = new Gio.ListStore({ itemType: StoboColumnItem.$gtype });
-
 	const stoboColumnSelection = new Gtk.SingleSelection({
 		model: stoboColumnBuffer
 	});
+
+	const stoboColumnView = builder.get_object("stobo_column_view", Gtk.ColumnView);
 
 	stoboColumnView.set_model(stoboColumnSelection);
 
@@ -1266,7 +1295,17 @@ const createWindow = () => {
 		if (!("entry" in modelItem) || !(modelItem.entry instanceof WeakRef)) return;
 		const x = modelItem.entry.deref();
 		if (x === undefined) return;
+		if (!("archive" in x) || !(x["archive"] instanceof Gio.File)) return;
+		const { archive: file } = x;
+		const alwaysAsk = true;
+		(new Gtk.FileLauncher({
+			file,
+			alwaysAsk
+		})).launch(window, null);
+
+		return;
 		const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(AddonControls.substring(11)));
+		// @ts-expect-error libadwaita 1.5 typelib not available yet
 		const dialog = builder.get_object("window", Adw.Dialog);
 		useFile(dialog, builder, window);
 		(() => {
@@ -1287,94 +1326,258 @@ const createWindow = () => {
 		dialog.present(window);
 	});
 
-	const rightClick = Object.assign(new Gtk.GestureClick(), {
-		popover: (() => {
-			const object = new Gtk.PopoverMenu;
-			object.set_has_arrow(false);
-			return object;
-		})(),
-	});
-	rightClick.set_button(3);
-	rightClick.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
-	rightClick.connect("pressed", (_object, nPress, x, y) => {
-		(() => {
-			if (nPress !== 1) {
-				console.log("not enough press", nPress);
-				return;
-			}
-			const idx = (() => {
-				return Math.round((y / stoboColumnView.get_allocation().height) * stoboColumnBuffer.get_n_items());
-			})();
-			const modelItem = stoboColumnBuffer.get_item(idx);
-			if (modelItem === null) {
-				console.log("item is null");
-				return;
-			}
-			const menu = (() => {
-				const menu = new Gio.Menu;
+	const contextMenu = (() => {
+		const object = new Gtk.PopoverMenu;
+		object.set_has_arrow(false);
+		object.set_size_request(-1, 200);
+		return object;
+	})();
 
+	/**
+	 * @param {{ x: number; y: number }} position
+	 * @param {number} sourceIndex
+	 */
+	const popupContextMenu = (position, sourceIndex) => {
+		const { x, y } = position;
+
+		/**
+		 * @type {{ [key: string]: () => Gtk.Widget}}
+		 */
+		const customWidgets = {};
+		const menu = (() => {
+			const menu = new Gio.Menu;
+
+			if (!isNaN(sourceIndex)) {
 				menu.append_submenu(_("Move to Index..."), (() => {
 					const menu = new Gio.Menu;
 
 					const widgetPlaceholder = new Gio.MenuItem;
 					widgetPlaceholder.set_attribute_value("custom", GLib.Variant.new_string("move-to-index-widget"));
+					customWidgets["move-to-index-widget"] = () => {
+						const container = new Adw.Clamp;
+						container.set_maximum_size(120);
+						container.set_margin_top(12);
+						container.set_margin_bottom(12);
+
+						container.set_child((() => {
+							const box = new Gtk.Box;
+							box.add_css_class("linked");
+
+							const entry = new Gtk.Entry;
+							entry.set_size_request(56, -1);
+							box.append(entry);
+
+							box.append((() => {
+								const button = new Gtk.Button;
+								button.set_label(_("Move"));
+								button.add_css_class("suggested-action");
+								button.connect("clicked", () => {
+									if (_workspace === undefined) return;
+
+									const sourceRow = stoboColumnBuffer.get_item(sourceIndex);
+									if (sourceRow === null) throw new Error;
+									if (!("entryName" in sourceRow) || typeof sourceRow["entryName"] !== "string") throw new Error;
+
+									const targetIdx = Math.min(Math.max(Number(entry.text), 0), _workspace.manualOrder.length - 1);
+									const targetRow = stoboColumnBuffer.get_item(targetIdx);
+									if (targetRow === null) throw new Error;
+									if (!("entryName" in targetRow) || typeof targetRow["entryName"] !== "string") throw new Error;
+
+									stoboColumnBuffer.remove(sourceIndex);
+									stoboColumnBuffer.insert(targetIdx, sourceRow);
+
+									_workspace.requestChangeManualOrder({
+										type: "move",
+										src: sourceRow["entryName"],
+										target: targetRow["entryName"],
+									});
+
+									contextMenu.set_visible(false);
+								});
+								return button;
+							})());
+
+							return box;
+						})());
+						return container;
+					};
 					menu.append_item(widgetPlaceholder);
 
 					return menu;
 				})());
+			}
+
+			menu.append_submenu(_("Move to named row..."), (() => {
+				const menu = new Gio.Menu;
+
+				const widgetPlaceholder = new Gio.MenuItem;
+				widgetPlaceholder.set_attribute_value("custom", GLib.Variant.new_string("move-to-named-widget"));
+				customWidgets["move-to-named-widget"] = () => {
+					const widget = new DocumentChooser;
+					const recently_opened_documents = (() => {
+						const store = new Gio.ListStore({ itemType: DocumentEntry.$gtype });
+						(() => {
+							if (_workspace === undefined) return;
+							const { manualOrder } = _workspace;
+							for (const x of manualOrder) {
+								store.append(new DocumentEntry(x));
+							}
+						})();
+						return store;
+					})();
+					widget.factory.connect("bind", (_obj, listitem) => {
+						if (!(listitem instanceof Gtk.ListItem)) throw new Error;
+						const child = listitem.get_child();
+						if (!(child instanceof DocumentRow)) throw new Error;
+						const item = listitem.get_item();
+						if (!(item instanceof DocumentEntry)) throw new Error;
+						child.file_name.set_label(item.name);
+					});
+					widget.search_entry.connect("changed", (_obj) => {
+						filter.changed(Gtk.FilterChange.DIFFERENT);
+					});
+					recently_opened_documents.bind_property_full(
+						"n-items",
+						widget.search_entry,
+						"sensitive",
+						GObject.BindingFlags.SYNC_CREATE,
+						(_obj, from) => {
+							if (from === 0) return [true, false];
+							return [true, true];
+						},
+						T_CLOSURE_NONE,
+					);
+					const filter = Gtk.CustomFilter.new((item) => {
+						if (!(item instanceof DocumentEntry)) return false;
+						const path = item.name;
+						if (path.includes(widget.search_entry.get_text())) return true;
+						return false;
+					});
+					const model = new Gtk.FilterListModel({
+						model: recently_opened_documents,
+						filter,
+					});
+					model.connect("notify::n-items", syncCreate((obj) => {
+						const n = obj.get_n_items();
+						if (recently_opened_documents.get_n_items() <= 0) return;
+						if (n <= 0) {
+							widget.set_visible_child_name("noresult");
+						} else {
+							widget.set_visible_child_name("mainpage");
+						}
+					}, model));
+					widget.list.set_model(new Gtk.NoSelection({ model }));
+					widget.list.connect("activate", (_, targetIndex) => {
+						return;
+						if (_workspace === undefined) throw new Error;
+						const item = widget.list.get_model()?.get_item(targetIndex) || null;
+						if (item === null) throw new Error;
+						if (!(item instanceof DocumentEntry)) throw new Error;
+						const value = addonList.get_row_at_index(idx);
+						if (value === null) throw new Error;
+						if (!("srcName" in value) || typeof value["srcName"] !== "string") throw new Error;
+						addonList.remove(value);
+						stoboColumnBuffer.remove(idx);
+						addonList.insert(value, targetIndex);
+						stoboColumnBuffer.insert(targetIndex, modelItem);
+						_workspace.requestChangeManualOrder({
+							type: "move",
+							src: value["srcName"],
+							target: modelItem.entryName,
+						});
+					});
+					return widget;
+				};
+				menu.append_item(widgetPlaceholder);
 
 				return menu;
-			})();
-
-			const { popover } = rightClick;
-			popover.set_menu_model(menu);
-			popover.unparent();
-			popover.set_parent(stoboColumnView);
-			popover.set_pointing_to((() => {
-				const val = new Gdk.Rectangle();
-				val.x = x;
-				val.y = y;
-				val.width = 1;
-				val.height = 1;
-				return val;
-			})());
-			popover.set_menu_model(menu);
-
-			const container = new Adw.Clamp;
-			container.set_maximum_size(120);
-			container.set_margin_top(12);
-			container.set_margin_bottom(12);
-
-			container.set_child((() => {
-				const box = new Gtk.Box;
-				box.add_css_class("linked");
-
-				const entry = new Gtk.Entry;
-				entry.set_size_request(56, -1);
-				box.append(entry);
-
-				box.append((() => {
-					const button = new Gtk.Button;
-					button.set_label(_("Move"));
-					button.add_css_class("suggested-action");
-					button.connect("clicked", () => {
-
-					});
-					return button;
-				})());
-
-				return box;
 			})());
 
-			// NOTE(kinten): add child to popover menu AFTER adding placeholder gmenu item
-			popover.add_child(container, "move-to-index-widget");
-
-			//popover.set_visible(true);
+			return menu;
 		})();
-		stoboColumnView.reset_state(Gtk.AccessibleState.CHECKED);
-		rightClick.reset();
+
+		contextMenu.set_menu_model(menu);
+		contextMenu.unparent();
+		contextMenu.set_parent(stoboColumnView);
+		contextMenu.set_pointing_to((() => {
+			const val = new Gdk.Rectangle();
+			val.x = x;
+			val.y = y;
+			val.width = 1;
+			val.height = 1;
+			return val;
+		})());
+		contextMenu.set_menu_model(menu);
+		Object.keys(customWidgets).forEach(
+			/**
+			 * @this {typeof customWidgets}
+			 */
+			function (key) {
+				const x = this[key];
+				if (x === undefined) return;
+				contextMenu.add_child(x(), key);
+			}, customWidgets);
+
+		contextMenu.set_visible(true);
+	};
+
+	const listRightClick = new Gtk.GestureClick();
+	listRightClick.set_button(3);
+	listRightClick.set_propagation_phase(Gtk.PropagationPhase.BUBBLE);
+	listRightClick.connect("pressed", (_object, nPress, x, y) => {
+		(() => {
+			if (nPress !== 1) {
+				return;
+			}
+			console.log("y is", y);
+			console.log("height is", stoboColumnView.get_height());
+
+			const idx = Math.round(((y - 35) / (stoboColumnView.get_height() - 35)) * (stoboColumnBuffer.get_n_items() - 1));
+
+			stoboColumnSelection.set_selected(idx);
+
+			console.log("idx is", idx);
+			if (idx < 0 || idx >= stoboColumnBuffer.get_n_items()) {
+				throw new Error("impossible idx " + idx);
+				return;
+			}
+
+			const modelItem = stoboColumnBuffer.get_item(idx);
+			if (modelItem === null) {
+				console.log("item is null");
+				return;
+			}
+
+			popupContextMenu({ x, y }, idx);
+		})();
+		listRightClick.reset();
 	});
-	stoboColumnView.add_controller(rightClick);
+	stoboColumnView.add_controller(listRightClick);
+
+	const windowLeftClick = new Gtk.GestureClick();
+	windowLeftClick.set_button(1);
+	windowLeftClick.set_propagation_phase(Gtk.PropagationPhase.BUBBLE);
+	windowLeftClick.connect("pressed", (object, nPress) => {
+		(() => {
+			if (nPress !== 1) return;
+			stoboColumnSelection.set_selected(Gtk.INVALID_LIST_POSITION);
+		})();
+		object.reset();
+	});
+	window.add_controller(windowLeftClick);
+
+	const windowRightClick = new Gtk.GestureClick();
+	windowRightClick.set_button(3);
+	windowRightClick.set_propagation_phase(Gtk.PropagationPhase.BUBBLE);
+	windowRightClick.connect("pressed", (object, nPress, x, y) => {
+		(() => {
+			if (nPress !== 1) return;
+			stoboColumnSelection.set_selected(Gtk.INVALID_LIST_POSITION);
+			popupContextMenu({ x, y }, NaN);
+		})();
+		object.reset();
+	});
+	window.add_controller(windowRightClick);
 
 	events.connect("workspaceChanged", () => {
 		if (_workspace === undefined) {
@@ -1397,12 +1600,7 @@ const createWindow = () => {
 				 * @param {T | null} x
 				 * @returns {x is T}
 				 */
-				x => x !== null)
-			.map((x, i) => {
-				return Object.assign(x, {
-					position: i,
-				});
-			});
+				x => x !== null);
 
 		stoboColumnBuffer.splice(0, stoboColumnBuffer.get_n_items(), newItems);
 	});
@@ -1450,59 +1648,97 @@ const createWindow = () => {
 		stoboProfileBar.primaryButton.activate_action("headerbox.reveal", null);
 	});
 
+	events.connect("workspaceChanged", () => {
+		if (_workspace === undefined) {
+			console.warn("Cannot explore the root workspace folder when there is no workspace");
+			return;
+		}
+		const { root, manualOrder } = _workspace;
+		const name = root.get_basename();
+		if (name === null) return;
+		stoboProfileBar.label.set_label(name);
+		stoboProfile.configure(name, manualOrder.length);
+	});
+
 	const workspaceActions = new Gio.SimpleActionGroup();
 
-	const toggleConsole = new Gio.SimpleAction({
-		name: "toggle-console",
+	const addAddon = new Gio.SimpleAction({
+		name: "add-addon",
 	});
 
-	const contentOverlay = builder.get_object("content_overlay", Gtk.Box);
+	addAddon.connect("activate", () => {
+		const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(add.substring(11)));
+		builder.set_current_object(builder.get_object("root", Adw.Dialog));
+		/**
+		 * @type {Adw.Window}
+		 */
+		// @ts-expect-error
+		const view = builder.get_current_object(Adw.Dialog);
+		const stack = (() => {
+			const content = view.get_child();
+			if (!(content instanceof Gtk.Stack)) throw new Error;
+			return content;
+		})();
+		const content = (() => {
+			const child = stack.get_child_by_name("content");
+			if (!(child instanceof Embed)) throw new Error;
+			return child;
+		})();
+		content.load(`<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <object class="AdwPreferencesPage" id="root">
+    <property name="icon-name">applications-system-symbolic</property>
+    <property name="title" translatable="true">General</property>
+    <child>
+      <object class="AdwPreferencesGroup">
+        <child>
+          <object class="AdwActionRow" id="default_directory_row">
+            <property name="title" translatable="true">Download Directory</property>
+            <property name="subtitle">Select Location</property>
+            <property name="activatable-widget">set_default_directory</property>
+            <child type="suffix">
+              <object class="GtkButton" id="set_default_directory">
+                <property name="valign">3</property>
+                <property name="halign">3</property>
+                <property name="action-name">file.select-folder</property>
+                <property name="action-target">("download-directory","")</property>
+                <property name="icon-name">document-open-symbolic</property>
+                <style>
+                  <class name="flat"/>
+                </style>
+              </object>
+            </child>
+            <child type="suffix">
+              <object class="GtkButton">
+                <property name="valign">3</property>
+                <property name="icon-name">user-trash-symbolic</property>
+                <style>
+                  <class name="flat"/>
+                </style>
+                <property name="action-name">file.set</property>
+                <property name="action-target">("download-directory","")</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="true">Playground</property>
+            <property name="subtitle" translatable="true">Play with experimental UI components and APIs</property>
+            <property name="action-name">preferences.show-playground</property>
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>`, "console.log('Wow!');");
 
-	const end = 300;
-
-	const bottomConsoleBox = builder.get_object("bottom_console_box", Gtk.Box);
-
-	const consoleSlidingUp = new Adw.SpringAnimation({
-		widget: contentOverlay,
-		valueFrom: 0,
-		valueTo: 1,
-		springParams: Adw.SpringParams.new(0.60, 1.0, 600.0),
-		target: Adw.CallbackAnimationTarget.new((value) => {
-			const marginValue = Adw.lerp(28, end, value);
-			contentOverlay.set_margin_bottom(marginValue);
-			const heightValue = Adw.lerp(12, end - 16, value);
-			bottomConsoleBox.set_size_request(-1, heightValue);
-		}),
+		stack.set_visible_child_name("content");
+		view.present(window);
 	});
-	consoleSlidingUp.initialVelocity = 5.0;
-	consoleSlidingUp.epsilon = 0.001;
-	consoleSlidingUp.clamp = false;
 
-	const consoleSlidingDown = new Adw.SpringAnimation({
-		widget: contentOverlay,
-		valueFrom: 0,
-		valueTo: 1,
-		springParams: Adw.SpringParams.new(1, 1.0, 600.0),
-		target: Adw.CallbackAnimationTarget.new((value) => {
-			const marginValue = Adw.lerp(28, end, 1 - value);
-			contentOverlay.set_margin_bottom(marginValue);
-			const heightValue = Adw.lerp(12, end - 16, 1 - value);
-			bottomConsoleBox.set_size_request(-1, heightValue);
-		}),
-	});
-	consoleSlidingDown.initialVelocity = 5.0;
-	consoleSlidingDown.epsilon = 0.001;
-	consoleSlidingDown.clamp = false;
-
-	let isConsoleVisible = false;
-
-	toggleConsole.connect("activate", () => {
-		const animation = isConsoleVisible ? consoleSlidingDown : consoleSlidingUp;
-		animation.play();
-		isConsoleVisible = !isConsoleVisible;
-	});
-
-	workspaceActions.add_action(toggleConsole);
+	workspaceActions.add_action(addAddon);
 
 	const explore = new Gio.SimpleAction({
 		name: "explore",
@@ -1523,15 +1759,15 @@ const createWindow = () => {
 
 	workspaceActions.add_action(explore);
 
-	const add = new Gio.SimpleAction({
+	const addWorkspace = new Gio.SimpleAction({
 		name: "add",
 	});
 
-	add.connect("activate", () => {
+	addWorkspace.connect("activate", () => {
 		folderStack.set_visible_child_name("pre-folder");
 	});
 
-	workspaceActions.add_action(add);
+	workspaceActions.add_action(addWorkspace);
 
 	const restore = new Gio.SimpleAction({
 		name: "restore",
@@ -1730,6 +1966,23 @@ const createWindow = () => {
 		name: "inject",
 	});
 
+	let useFlashTimeout = new Gio.Cancellable;
+
+	const stoboHeaderbar = Object.assign(builder.get_object("stobo_headerbar", Adw.HeaderBar), {
+		flashes: async () => {
+			if (!useFlashTimeout.is_cancelled())
+				useFlashTimeout.cancel();
+			useFlashTimeout = new Gio.Cancellable();
+			stoboHeaderbar.add_css_class("element");
+			await delayMs(3000, useFlashTimeout).catch(error => {
+				logError(error);
+				return error;
+			}).finally(() => {
+				stoboHeaderbar.remove_css_class("element");
+			});
+		},
+	});
+
 	inject.connect("activate", () => {
 		if (_workspace === undefined) {
 			console.debug("Could not inject when there is no workspace");
@@ -1743,8 +1996,14 @@ const createWindow = () => {
 			const { root, entries, shuffleChoices: previousShuffleChoices, requestSaveShuffleChoices } = _workspace;
 			const { files: archives, shuffleChoices } = filter(entries, previousShuffleChoices);
 			requestSaveShuffleChoices(shuffleChoices);
-			await link(root, archives, cancellable);
+			await link(root, archives, {
+				addLine(line) {
+					console.debug("linking-log:", line);
+				}
+			}, cancellable);
 			profileBar.toast("LJWsdf");
+			stoboProfileBar.toast("LJWsdf");
+			stoboHeaderbar.flashes().catch(logError);
 		})().catch(logError);
 	});
 

@@ -9,11 +9,16 @@ import Gtk from 'gi://Gtk';
  */
 
 /**
+ * @typedef {<T extends Function>(klass: T) => T['prototype']} NewGetCurrentObject
+ */
+
+/**
  * A null-safe implementation (wrapper) of {@link Gtk.Builder}.
  *
  * @param {Gtk.Builder} builder
  * @returns {{
  * get_object: NewGetObject;
+ * get_current_object: NewGetCurrentObject;
  * } & Gtk.Builder}
  */
 const ExtendedBuilder = (builder) => {
@@ -36,11 +41,22 @@ const ExtendedBuilder = (builder) => {
 		else throw new Error;
 	};
 
+	/**
+	 * @type {NewGetCurrentObject}
+	 */
+	const get_current_object = (klass) => {
+		const obj = builder.get_current_object();
+		if (obj === null) throw new Error(`Builder could not retrieve current object, possibly not set.`);
+		if (!(obj instanceof klass)) throw new Error(`Builder found that current object is not of type ${klass.name}.`);
+		return obj;
+	};
+
 	return new Proxy(builder, {
 		get(obj, property_name, receiver) {
-			if (typeof property_name === 'string'
-				&& property_name === 'get_object') {
+			if (property_name === 'get_object') {
 				return get_object_resolver;
+			} else if (property_name === 'get_current_object') {
+				return get_current_object.bind(builder);
 			}
 			const val = Reflect.get(obj, property_name, receiver);
 			if ("apply" in val) return val.bind(obj);

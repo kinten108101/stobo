@@ -1,10 +1,14 @@
 import Gtk from "gi://Gtk";
 
+import ProfilePopover from "./profilePopover.blp" with { type: "uri" };
+import ExtendedBuilder from "../lib/builder.js";
+
 /**
  * @param {ReturnType<typeof import("./profileBar.js").default>} profileBar
  */
 const StoboProfile = (profileBar) => {
-	const popover = new Gtk.Popover();
+	const builder = ExtendedBuilder(Gtk.Builder.new_from_resource(ProfilePopover.substring(11)));
+	const popover = builder.get_object("root", Gtk.Popover);
 	popover.set_parent(profileBar.primaryButton);
 
 	/**
@@ -34,6 +38,14 @@ const StoboProfile = (profileBar) => {
 		 */
 		onPopoverClosed(callback) {
 			callbacksPopoverClosed.push(callback);
+		},
+		/**
+		 * @param {string} title
+		 * @param {number} totalAddons
+		 */
+		configure(title, totalAddons) {
+			builder.get_object("title", Gtk.Label).set_label(title);
+			builder.get_object("total_addons", Gtk.Label).set_label(String(totalAddons));
 		}
 	}
 };

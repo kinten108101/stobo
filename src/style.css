@@ -438,7 +438,7 @@ columnview.py-\[1px\] cell {
 	border-bottom: solid 1px @headerbar_shade_color;
 }
 
-.rounded-\[12px\] {
+.rounded-\[12px\]-lol {
 	border-radius: 0px 0px 12px 12px;
 }
 
@@ -453,3 +453,75 @@ columnview.py-\[1px\] cell {
 .bg-view-with-shadow-top {
 	background: linear-gradient(0deg, @view_bg_color 85%, mix(@view_bg_color, @light_5, 0.2) 100%);
 }
+
+.element {
+  animation: pulse_1 3s;
+}
+
+@keyframes pulse_1 {
+  0% {
+    background-color: @blue_1;
+  }
+  100% {
+
+  }
+}
+
+@keyframes pulse_2 {
+  0% {
+    border-left: solid 1px lighter(@headerbar_shade_color);
+  }
+  100% {
+
+  }
+}
+
+.font-monospace {
+	font-family: monospace;
+	font-size: small;
+}
+
+.font-bold {
+	font-weight: bold;
+}
+
+/* popover */
+.documentchooser contents {
+  padding: 0;
+  margin: 0;
+}
+
+.documentchooser listview {
+  margin-top: 0px;
+}
+
+.documentchooser .navigation-sidebar row {
+  margin-left: 0;
+  margin-right: 0;
+  padding: 4px 8px 4px 16px;
+}
+
+.documentchooser .navigation-sidebar row:not(:first-child) {
+  margin-top: 4px;
+}
+
+.documentchooser .navigation-sidebar row:active {
+  background-color: alpha(currentColor, 0.05);
+}
+
+.documentchooser .file_name {
+  font-size: medium;
+}
+
+.documentchooser .file_path {
+  font-size: small;
+}
+
+.documentchooser .empty_page_content {
+  margin: 16px;
+}
+
+.documentchooser .noresult_content {
+  margin: 16px;
+}
+
